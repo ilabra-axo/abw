@@ -1,0 +1,895 @@
+# ABW requirement register.
+#
+# Every requirement the core must satisfy has one entry. `cargo xtask trace` links each
+# entry to the tests tagged `// @req <ID>` and fails if any requirement due at or before
+# the current milestone lacks a passing test. Protected by CODEOWNERS. Changing a
+# requirement's text or milestone needs an ADR in docs/decisions/.
+#
+# Fields: id, title, text, source, milestone (M0..M6), optional note.
+
+[meta]
+current = "M0"
+milestones = ["M0", "M1", "M2", "M3", "M4", "M5", "M6"]
+
+# ---------------------------------------------------------------- governance (the harness)
+
+[[req]]
+id = "GOV-01"
+title = "Trace blocks on missing evidence"
+text = "cargo xtask trace fails when a requirement due at or before the current milestone has no linked test, or any linked test fails or is ignored."
+source = "PLAN.md §4"
+milestone = "M0"
+
+[[req]]
+id = "GOV-02"
+title = "Tags must name real requirements"
+text = "A test tagged with an ID that is not in the register fails trace."
+source = "PLAN.md §4"
+milestone = "M0"
+
+[[req]]
+id = "GOV-03"
+title = "Register is well-formed"
+text = "Register IDs are unique, every milestone is a declared milestone, and every entry has a title, text and source."
+source = "PLAN.md §4"
+milestone = "M0"
+
+[[req]]
+id = "GOV-04"
+title = "Tests and product code change in separate PRs"
+text = "A PR that changes verification assets (tests/, crates/*/tests/, docs/requirements/, xtask/) may not change product code, except that a product PR may delete `#[ignore = \"pending ...\"]` lines from tests it makes pass."
+source = "PLAN.md §8"
+milestone = "M0"
+
+[[req]]
+id = "GOV-05"
+title = "A pending test is not evidence"
+text = "A test marked #[ignore] never counts as passing, so a requirement whose only tests are pending is unmet."
+source = "PLAN.md §8"
+milestone = "M0"
+
+# ---------------------------------------------------------------- target design invariants (§1.2)
+
+[[req]]
+id = "T1"
+title = "The write boundary is a crate"
+text = "abw-ledger is the only code that holds a write-capable database handle. Handlers receive ReadDb, a read-only handle. A handler that writes directly does not compile."
+source = "target-system-design §1.2, §3.9"
+milestone = "M1"
+
+[[req]]
+id = "T2"
+title = "Trust history is events"
+text = "Each stream has gap-free sequence numbers and is appended with expected-version compare-and-swap. Envelopes are typed and versioned (event_type, schema_version). Artifacts are content-addressed."
+source = "target-system-design §1.2, §3.2"
+milestone = "M1"
+
+[[req]]
+id = "T3"
+title = "Projections update in the append transaction"
+text = "A projection row changes only in a transaction that appends the event justifying it, enforced by the database. Rebuilding a projection from events reproduces it exactly."
+source = "target-system-design §1.2, §3.4"
+milestone = "M1"
+
+[[req]]
+id = "T4"
+title = "One canonical form, one hash format"
+text = "Canonical JSON is RFC 8785 (JCS). Every hash is sha256:<64 lowercase hex> over the canonical bytes."
+source = "target-system-design §1.2, §3.6"
+milestone = "M1"
+
+[[req]]
+id = "T5"
+title = "A record is atomic with its effect"
+text = "Every decision, charge, version and verdict commits in the same transaction as the effect it describes. No write-behind, detached task or fire-and-forget for these records."
+source = "target-system-design §1.2"
+milestone = "M1"
+
+[[req]]
+id = "T6"
+title = "The database enforces immutability"
+text = "Events, artifacts, provenance, policy versions and immutable projections reject UPDATE, DELETE and TRUNCATE by trigger; foreign keys into them are ON DELETE RESTRICT; the app role has INSERT only on event and artifact tables."
+source = "target-system-design §1.2, §3.1.1"
+milestone = "M1"
+
+[[req]]
+id = "T7"
+title = "A control refuses or it does not exist"
+text = "A check named gate, contract, binding or validation blocks the effect it guards. A check that only records is typed Observation and records Undetermined with a reason_class, never Refused or Approved."
+source = "target-system-design §1.2, §8"
+milestone = "M3"
+
+[[req]]
+id = "T8"
+title = "Evidence is separate from verdict"
+text = "Evidence collection and verdict computation live in different modules; no function both stamps provenance and amends a claim; the crate graph enforces it."
+source = "target-system-design §1.2, §7.1"
+milestone = "M3"
+
+[[req]]
+id = "T9"
+title = "Money is a ledger (superseded)"
+text = "Superseded by ECO-1..ECO-9 (economy.md). Kept so the trace shows the replacement explicitly."
+source = "target-system-design §1.2; economy.md"
+milestone = "M2"
+note = "Satisfied when ECO-1..7 pass; the tests for those IDs also carry this tag."
+
+[[req]]
+id = "T10"
+title = "Interpretive is never provenance"
+text = "LLM-judge output is typed interpretive. The database makes it unreachable in any Grounding walk and unusable as a source."
+source = "target-system-design §1.2, §6.2"
+milestone = "M3"
+
+[[req]]
+id = "T11"
+title = "Verdicts are reproducible"
+text = "A verdict vector is a pure function of (claim, artifacts, stream heads, provenance graph, theta version); theta_version is part of the vector; replay reproduces it bit for bit."
+source = "target-system-design §1.2, §5.6"
+milestone = "M3"
+
+[[req]]
+id = "T12"
+title = "The verdict vocabulary is closed"
+text = "Every dimension returns exactly one of pass, fail, unsupported, not_evaluated. A missing substrate never yields pass."
+source = "target-system-design §1.2, §5.4"
+milestone = "M3"
+
+[[req]]
+id = "T13"
+title = "Lattice, not ladder"
+text = "All five dimensions are evaluated every time without short-circuit; dependencies are declared in one table; one lattice.evaluated event carries the whole vector."
+source = "target-system-design §1.2, §5.3"
+milestone = "M3"
+
+[[req]]
+id = "T14"
+title = "A failure is a diagnosis, never terminal"
+text = "Every non-pass carries failure class, evidence reference, expected, observed, suggested action and remaining budget. The worst outcome is Parked with owner notification."
+source = "target-system-design §1.2"
+milestone = "M3"
+
+[[req]]
+id = "T15"
+title = "Evidence, not verdict, at the routing boundary"
+text = "The lattice outputs a vector; a separately versioned routing policy picks the action; the judge report and vector reach route() as separate typed inputs; the judge cannot raise any dimension."
+source = "target-system-design §1.2, §5.9-5.10"
+milestone = "M3"
+
+[[req]]
+id = "T16"
+title = "One word, one meaning"
+text = "Presence, Liveness, Truth, Grounding and Binding name only Lattice dimensions."
+source = "target-system-design §1.2"
+milestone = "M1"
+
+[[req]]
+id = "T17"
+title = "Tenancy on every read by ID"
+text = "Reading an object by opaque ID returns 404 unless the caller is authorised for that object."
+source = "target-system-design §1.2, §13.1"
+milestone = "M2"
+
+[[req]]
+id = "T18"
+title = "No user-supplied URL reaches a private address"
+text = "Every outbound request to a tenant-supplied host goes through one guard that resolves the host, classifies the address, pins the IP and refuses redirects."
+source = "target-system-design §1.2, §12.5"
+milestone = "M2"
+
+[[req]]
+id = "T19"
+title = "Binding is registration, scored at outcome"
+text = "A claim becomes scoreable when commitment.bound exists; its Brier score is computed from that claim's own p when outcome.observed is appended."
+source = "target-system-design §1.2, §5.12"
+milestone = "M3"
+
+[[req]]
+id = "T20"
+title = "The outer loop proposes; a human accepts"
+text = "No theta or routing policy changes without a human-accepted policy.adjusted event; a proposal that breaches the human-load ceiling is rejected."
+source = "target-system-design §1.2, §11.4"
+milestone = "M3"
+
+# ---------------------------------------------------------------- economy (economy.md)
+
+[[req]]
+id = "ECO-1"
+title = "Allowance changes only through its own events"
+text = "An allowance changes only through events on its allowance:<owner> stream; available = funded + granted - consumed - held is a projection the database will not change without an event."
+source = "economy.md"
+milestone = "M2"
+
+[[req]]
+id = "ECO-2"
+title = "Funding requires a settled ACN commitment"
+text = "allowance.funded requires a settled ACN commitment reference verified by abw-acn and is idempotent on that reference."
+source = "economy.md"
+milestone = "M4"
+
+[[req]]
+id = "ECO-3"
+title = "Grants are operator-only and capped"
+text = "allowance.granted requires the operator actor and is capped per owner by policy."
+source = "economy.md"
+milestone = "M2"
+
+[[req]]
+id = "ECO-4"
+title = "No value moves between owners inside ABW"
+text = "No event type moves allowance between owners; a consumption event must cite an episode owned by the stream's owner."
+source = "economy.md"
+milestone = "M2"
+
+[[req]]
+id = "ECO-5"
+title = "Hold before work, settle at close, no debt"
+text = "A hold is placed before work and is a hard ceiling; settlement and release commit in the episode-close transaction; actual use never exceeds the hold."
+source = "economy.md"
+milestone = "M2"
+
+[[req]]
+id = "ECO-6"
+title = "Idempotent allowance events"
+text = "Every allowance event carries an idempotency key; a retry never funds or charges twice."
+source = "economy.md"
+milestone = "M2"
+
+[[req]]
+id = "ECO-7"
+title = "Non-negative available and held"
+text = "available >= 0 and held >= 0 are enforced by the database."
+source = "economy.md"
+milestone = "M2"
+
+[[req]]
+id = "ECO-8"
+title = "Value between owners only through ACN"
+text = "Selling, renting and licensing between owners happen only through ACN commitments; only allowlisted event types leave through the outbox; the requester declares satisfaction."
+source = "economy.md"
+milestone = "M4"
+
+[[req]]
+id = "ECO-9"
+title = "ACN isolation and key hygiene"
+text = "Only abw-acn depends on Nostr, Cashu or key-store crates; no private key material appears in DB columns, logs or error strings."
+source = "economy.md"
+milestone = "M4"
+
+# ---------------------------------------------------------------- protected capabilities (PLAN.md §9)
+
+[[req]]
+id = "PROT-01"
+title = "cohere_and_coordinate is carried over in full"
+text = "TEC coherence (Gamma), destructive/productive conflict classification, cascade of coordination observations into members' memory (strategist-only, current members only), the coordination brief, and the valence-homophily guard computed in code, not prompt text."
+source = "PLAN.md §9; harvest/agents.md"
+milestone = "M5"
+
+[[req]]
+id = "PROT-02"
+title = "Strategists are agents that actually orchestrate"
+text = "Pipeline, MoE routing, debate and vote strategists each have orchestration implemented in code with an acceptance test; behaviours that were prompt-only in legacy (harvest/agents.md) are implemented or explicitly dropped by ADR."
+source = "PLAN.md §9; harvest/agents.md"
+milestone = "M5"
+note = "MoE routing (calibration-first selection, routing decisions recorded) is due in M3 for Fermi; tracked by CAP-04.01."
+
+[[req]]
+id = "PROT-03"
+title = "Exact Shapley credit with its validity gates"
+text = "Per-agent credit is exact Shapley over counterfactual re-runs of the team forecast, with the efficiency-residual and reconstruction-error gates; the team Brier is never copied to agents."
+source = "PLAN.md §9; capabilities.md 'Open: where the halves meet'"
+milestone = "M3"
+
+[[req]]
+id = "PROT-04"
+title = "FPL, Monte Carlo and Sobol are certified kernels"
+text = "The FPL parser and interpreter, Monte Carlo executor and Sobol sensitivity are pure crates certified against independent oracles (analytic cases, Ishigami/g-function, seeded bit-identical replay)."
+source = "PLAN.md §9; harvest/modules.md"
+milestone = "M3"
+
+[[req]]
+id = "PROT-05"
+title = "BayesOps is a certified kernel"
+text = "Posterior fitting is a pure crate certified on conjugate cases with analytic posteriors and posterior predictive checks; Loop 5.B's Monte Carlo impact gate auto-accepts or holds for human review."
+source = "PLAN.md §9"
+milestone = "M3"
+
+[[req]]
+id = "PROT-06"
+title = "The five feedback loops run with gates that fire"
+text = "Loops 1, 2, 3.A/B, 4.A/B and 5.A/B each have a gate shown to fire, admit valid input, and reject input that satisfies a proxy but not the property."
+source = "PLAN.md §9; feedback-loops.md"
+milestone = "M5"
+
+[[req]]
+id = "PROT-07"
+title = "Memory and consolidation are carried over"
+text = "Per-agent episodic and semantic memory with source-quality tags, and consolidation of verdict-qualified episodes only."
+source = "PLAN.md §9"
+milestone = "M5"
+
+[[req]]
+id = "PROT-08"
+title = "Evaluators are carried over"
+text = "Pluggable evaluators (Sotopia, WildGuard, faithfulness and the others in harvest/modules.md) record signals graded LLM-judged or hard-verified."
+source = "PLAN.md §9"
+milestone = "M5"
+
+[[req]]
+id = "PROT-09"
+title = "Curated agent cards are carried over as data"
+text = "Every curated card with disposition port or port:tenant-* in harvest/agents.md is importable as a versioned agent; dropped cards are listed in an ADR."
+source = "PLAN.md §9; harvest/agents.md"
+milestone = "M2"
+
+[[req]]
+id = "PROT-10"
+title = "Calibration and Brier per agent and team"
+text = "Calibration is measured against external ground truth per team and per agent (via Shapley), separately from fidelity."
+source = "PLAN.md §9; capabilities.md §6, §13"
+milestone = "M3"
+
+[[req]]
+id = "PROT-11"
+title = "Dynamics and SimOps models are carried over"
+text = "Dynamics, rheology and cascade models are pure crates with oracle tests; SimOps projections are derivation events."
+source = "PLAN.md §9"
+milestone = "M6"
+
+[[req]]
+id = "PROT-12"
+title = "DPP and carbon accounting are carried over"
+text = "Carbon calculations are kernels; passports are published by one command in one transaction with lineage to episodes, source commit and artifact hashes, and are signed."
+source = "PLAN.md §9; target-system-design §10.2"
+milestone = "M6"
+
+# ---------------------------------------------------------------- capabilities (generated once from capabilities.md)
+[[req]]
+id = "CAP-01.01"
+title = "Run agents: Version an agent"
+text = "Each configuration change produces a new frozen, hashed version; retiring is soft"
+source = "capabilities.md §1"
+milestone = "M2"
+
+[[req]]
+id = "CAP-01.02"
+title = "Run agents: Run an episode"
+text = "Execute one version on one task within a fixed iteration budget"
+source = "capabilities.md §1"
+milestone = "M2"
+
+[[req]]
+id = "CAP-01.03"
+title = "Run agents: Invoke a tool"
+text = "Call only tools on that version's allowlist; record each call and result"
+source = "capabilities.md §1"
+milestone = "M2"
+
+[[req]]
+id = "CAP-01.04"
+title = "Run agents: Remember"
+text = "Keep per-agent episodic and semantic memory, tagged with how well-sourced it is"
+source = "capabilities.md §1"
+milestone = "M2"
+
+[[req]]
+id = "CAP-02.01"
+title = "Compose teams: Hire an agent"
+text = "Place an agent into a workspace under one hire rule; auto-hire uses the same authorisation"
+source = "capabilities.md §2"
+milestone = "M3"
+
+[[req]]
+id = "CAP-02.02"
+title = "Compose teams: Change composition"
+text = "Propose adding, removing or swapping agents when coordination keeps failing; the owner accepts or rejects"
+source = "capabilities.md §2"
+milestone = "M5"
+
+[[req]]
+id = "CAP-02.03"
+title = "Compose teams: Guard diversity"
+text = "Detect a team converging on one outlook (valence homophily) and counter it"
+source = "capabilities.md §2"
+milestone = "M5"
+
+[[req]]
+id = "CAP-03.01"
+title = "Contract work: Commission a task"
+text = "A strategist issues a typed commission to an expert, naming the task and its conditions of satisfaction"
+source = "capabilities.md §3"
+milestone = "M3"
+
+[[req]]
+id = "CAP-03.02"
+title = "Contract work: Declare an expert contract"
+text = "Each expert states what it accepts, what it produces and what it can be checked on"
+source = "capabilities.md §3"
+milestone = "M3"
+
+[[req]]
+id = "CAP-03.03"
+title = "Contract work: Record the episode contract"
+text = "Every episode records input and output artifact hashes, independent evidence, the check's result, any failure detail, and the episode it corrects"
+source = "capabilities.md §3"
+milestone = "M3"
+
+[[req]]
+id = "CAP-03.04"
+title = "Contract work: Check against the contract"
+text = "A gate oracle, separate from the strategist, verifies the result"
+source = "capabilities.md §3"
+milestone = "M3"
+
+[[req]]
+id = "CAP-03.05"
+title = "Contract work: Dispose of a result"
+text = "The strategist accepts, retries or escalates on the verification result"
+source = "capabilities.md §3"
+milestone = "M3"
+
+[[req]]
+id = "CAP-03.06"
+title = "Contract work: Close a commitment"
+text = "Requests move through open, bind, perform and close; the requester, not the performer, declares satisfaction"
+source = "capabilities.md §3"
+milestone = "M4"
+
+[[req]]
+id = "CAP-03.07"
+title = "Contract work: Chain corrections"
+text = "Link each correction to the episode it fixes, so improvement can be checked rather than assumed"
+source = "capabilities.md §3"
+milestone = "M3"
+
+[[req]]
+id = "CAP-04.01"
+title = "Coordinate work: Route a query"
+text = "The strategist picks experts by calibration first, then checks the team's diversity"
+source = "capabilities.md §4"
+milestone = "M3"
+
+[[req]]
+id = "CAP-04.02"
+title = "Coordinate work: Widen a query"
+text = "When diversity collapses, decompose across a broader expert or add a contrasting critic seat; otherwise flag it unresolved"
+source = "capabilities.md §4"
+milestone = "M5"
+
+[[req]]
+id = "CAP-04.03"
+title = "Coordinate work: Measure coherence"
+text = "Score how well the team's explanations fit together, each session"
+source = "capabilities.md §4"
+milestone = "M5"
+
+[[req]]
+id = "CAP-04.04"
+title = "Coordinate work: Classify conflict"
+text = "Resolve destructive conflict; protect productive incoherence and surface it"
+source = "capabilities.md §4"
+milestone = "M5"
+
+[[req]]
+id = "CAP-04.05"
+title = "Coordinate work: Steer the session"
+text = "Post a coherence update that steers the current conversation"
+source = "capabilities.md §4"
+milestone = "M5"
+
+[[req]]
+id = "CAP-04.06"
+title = "Coordinate work: Cascade to members"
+text = "Write each member's coordination observation into that member's memory; only the workspace's registered strategist may write, and only to current members"
+source = "capabilities.md §4"
+milestone = "M5"
+
+[[req]]
+id = "CAP-04.07"
+title = "Coordinate work: Brief the humans"
+text = "Write a coordination brief summarising the session for its readers"
+source = "capabilities.md §4"
+milestone = "M5"
+
+[[req]]
+id = "CAP-05.01"
+title = "Observe: Evaluate an episode"
+text = "Run pluggable evaluators (Sotopia, WildGuard today) and record their signals"
+source = "capabilities.md §5"
+milestone = "M5"
+
+[[req]]
+id = "CAP-05.02"
+title = "Observe: Grade a signal"
+text = "Mark each signal LLM-judged or hard-verified; only hard-verified signals skip the coherence gate"
+source = "capabilities.md §5"
+milestone = "M5"
+
+[[req]]
+id = "CAP-05.03"
+title = "Observe: Run the evaluators"
+text = "An observability agent coordinates evaluators and has its own learning cycle"
+source = "capabilities.md §5"
+milestone = "M5"
+
+[[req]]
+id = "CAP-06.01"
+title = "Learn and improve: 1. Agent learning"
+text = "An agent's semantic rules and knowledge-graph context | Evaluator signals, consolidated across episodes | Coherence gate for LLM-judged signals; hard-verified signals pass directly"
+source = "capabilities.md §6"
+milestone = "M5"
+
+[[req]]
+id = "CAP-06.02"
+title = "Learn and improve: 2. Human correction"
+text = "An agent's persona version | A reviewer's intervention on an anomaly | Reviewer, then coherence gate"
+source = "capabilities.md §6"
+milestone = "M5"
+
+[[req]]
+id = "CAP-06.03"
+title = "Learn and improve: 3. Workspace coherence (3.A inner, 3.B outer)"
+text = "The current conversation and members' memory (3.A, per session); a composition proposal (3.B, across sessions) | Coherence score; tension audit | Owner, for composition"
+source = "capabilities.md §6"
+milestone = "M5"
+
+[[req]]
+id = "CAP-06.04"
+title = "Learn and improve: 4.A Composition evolution"
+text = "Team structure | Shapley credit and pairwise interactions; chronic coordination failures; homophily | Owner"
+source = "capabilities.md §6"
+milestone = "M5"
+
+[[req]]
+id = "CAP-06.05"
+title = "Learn and improve: 4.B Routing"
+text = "Which experts the strategist picks | Loop 5.A calibration; route provenance joined to outcomes | Hard-verified signals"
+source = "capabilities.md §6"
+milestone = "M5"
+
+[[req]]
+id = "CAP-06.06"
+title = "Learn and improve: 5.A Calibration measurement"
+text = "Nothing directly; consumed by Loops 1, 4.B and 5.B | Brier score against resolved markets, per team and per agent (Shapley); projection accuracy | Hard-verified signals"
+source = "capabilities.md §6"
+milestone = "M5"
+
+[[req]]
+id = "CAP-06.07"
+title = "Learn and improve: 5.B Parameter correction (BayesOps)"
+text = "Forecast distribution parameters | Resolved outcomes and observation history | Monte Carlo impact gate: auto-accept, or held for human review"
+source = "capabilities.md §6"
+milestone = "M5"
+
+[[req]]
+id = "CAP-07.01"
+title = "Make claims: Submit a claim"
+text = "State what the work produced, citing artifacts, tool calls and the state it read"
+source = "capabilities.md §7"
+milestone = "M3"
+
+[[req]]
+id = "CAP-07.02"
+title = "Make claims: Bind a commitment"
+text = "Register a probability that a stated outcome will occur by a deadline"
+source = "capabilities.md §7"
+milestone = "M3"
+
+[[req]]
+id = "CAP-07.03"
+title = "Make claims: Resubmit a claim"
+text = "Retry with corrections, within a limited budget, under a new episode"
+source = "capabilities.md §7"
+milestone = "M3"
+
+[[req]]
+id = "CAP-08.01"
+title = "Verify claims: Collect evidence"
+text = "Match each claimed field against the actual artifacts and sources"
+source = "capabilities.md §8"
+milestone = "M3"
+
+[[req]]
+id = "CAP-08.02"
+title = "Verify claims: Evaluate a claim"
+text = "Score all five dimensions every time, with no short-circuit and no shared state with evidence collection"
+source = "capabilities.md §8"
+milestone = "M3"
+
+[[req]]
+id = "CAP-08.03"
+title = "Verify claims: Judge a claim"
+text = "Get an independent LLM's report from a different model family and prompt lineage; it can flag, never raise a score"
+source = "capabilities.md §8"
+milestone = "M3"
+
+[[req]]
+id = "CAP-08.04"
+title = "Verify claims: Route a claim"
+text = "Pick one action from the vector and judge report under the active policy"
+source = "capabilities.md §8"
+milestone = "M3"
+
+[[req]]
+id = "CAP-08.05"
+title = "Verify claims: Diagnose a failure"
+text = "Every non-pass names its cause, expected vs. observed, a suggested fix and remaining budget"
+source = "capabilities.md §8"
+milestone = "M3"
+
+[[req]]
+id = "CAP-08.06"
+title = "Verify claims: Replay a verdict"
+text = "Recompute any past verdict bit for bit from its recorded inputs"
+source = "capabilities.md §8"
+milestone = "M3"
+
+[[req]]
+id = "CAP-09.01"
+title = "Trace provenance: Record lineage"
+text = "Link each artifact to the episode, tool call, source or derivation that made it"
+source = "capabilities.md §9"
+milestone = "M3"
+
+[[req]]
+id = "CAP-09.02"
+title = "Trace provenance: Walk a chain"
+text = "Answer \"does this trace to something outside the agent's say-so?\""
+source = "capabilities.md §9"
+milestone = "M3"
+
+[[req]]
+id = "CAP-09.03"
+title = "Trace provenance: Exclude opinion"
+text = "Keep judge and evaluator narratives out of any provenance walk"
+source = "capabilities.md §9"
+milestone = "M3"
+
+[[req]]
+id = "CAP-09.04"
+title = "Trace provenance: Inherit a floor"
+text = "Derived values are only as grounded as their weakest input"
+source = "capabilities.md §9"
+milestone = "M3"
+
+[[req]]
+id = "CAP-10.01"
+title = "Involve humans: Endorse a claim"
+text = "A human vouches for a claim; the endorsement is itself scored later"
+source = "capabilities.md §10"
+milestone = "M3"
+
+[[req]]
+id = "CAP-10.02"
+title = "Involve humans: Sign off a claim"
+text = "A human approves a high-stakes claim before it takes effect"
+source = "capabilities.md §10"
+milestone = "M3"
+
+[[req]]
+id = "CAP-10.03"
+title = "Involve humans: Return or decline"
+text = "A human sends a claim back with a note, or declines it; declining a clean vector is recorded as a possible false pass"
+source = "capabilities.md §10"
+milestone = "M3"
+
+[[req]]
+id = "CAP-10.04"
+title = "Involve humans: Park a claim"
+text = "Hold an unresolvable claim with its diagnosis and notify the owner; never drop it"
+source = "capabilities.md §10"
+milestone = "M3"
+
+[[req]]
+id = "CAP-10.05"
+title = "Involve humans: Cap human load"
+text = "Refuse to route more open packets to a person or tenant than policy allows"
+source = "capabilities.md §10"
+milestone = "M3"
+
+[[req]]
+id = "CAP-11.01"
+title = "Gate effects: Approve or refuse an effect"
+text = "A control blocks the effect it guards, recorded in the same transaction"
+source = "capabilities.md §11"
+milestone = "M3"
+
+[[req]]
+id = "CAP-11.02"
+title = "Gate effects: Mark undetermined"
+text = "When a check cannot run, treat it as not approved, with a reason"
+source = "capabilities.md §11"
+milestone = "M3"
+
+[[req]]
+id = "CAP-11.03"
+title = "Gate effects: Record an observation"
+text = "A check that only watches is labelled as such and never blocks or approves"
+source = "capabilities.md §11"
+milestone = "M3"
+
+[[req]]
+id = "CAP-12.01"
+title = "Account for money: Hold credit"
+text = "Reserve funds before work starts"
+source = "capabilities.md §12"
+milestone = "M2"
+note = "Superseded in mechanism by economy.md (allowance, no wallets); the requirement stands as restated there."
+
+[[req]]
+id = "CAP-12.02"
+title = "Account for money: Settle a run"
+text = "Charge actual cost and release the rest when the episode closes"
+source = "capabilities.md §12"
+milestone = "M2"
+note = "Superseded in mechanism by economy.md (allowance, no wallets); the requirement stands as restated there."
+
+[[req]]
+id = "CAP-12.03"
+title = "Account for money: Grant, deposit, transfer"
+text = "Move credit with balanced double entries; retries never double-charge"
+source = "capabilities.md §12"
+milestone = "M2"
+note = "Superseded in mechanism by economy.md (allowance, no wallets); the requirement stands as restated there."
+
+[[req]]
+id = "CAP-12.04"
+title = "Account for money: Fund a spawn"
+text = "Pay for, or sponsor, a new app workspace"
+source = "capabilities.md §12"
+milestone = "M2"
+note = "Superseded in mechanism by economy.md (allowance, no wallets); the requirement stands as restated there."
+
+[[req]]
+id = "CAP-13.01"
+title = "Score fidelity: Observe an outcome"
+text = "Record what happened against each bound commitment"
+source = "capabilities.md §13"
+milestone = "M3"
+
+[[req]]
+id = "CAP-13.02"
+title = "Score fidelity: Score fidelity"
+text = "Update how reliably each agent, endorser and judge fulfils contracts (Beta posterior over validated claims)"
+source = "capabilities.md §13"
+milestone = "M3"
+
+[[req]]
+id = "CAP-13.03"
+title = "Score fidelity: Detect false passes"
+text = "Flag dimensions that passed a claim that later proved wrong, or that a human declined"
+source = "capabilities.md §13"
+milestone = "M3"
+
+[[req]]
+id = "CAP-13.04"
+title = "Score fidelity: Detect false fails"
+text = "Flag dimensions that failed a claim a human then endorsed"
+source = "capabilities.md §13"
+milestone = "M3"
+
+[[req]]
+id = "CAP-13.05"
+title = "Score fidelity: Propose a policy change"
+text = "Suggest new thresholds or routes, tested against 30 days of past claims"
+source = "capabilities.md §13"
+milestone = "M5"
+
+[[req]]
+id = "CAP-13.06"
+title = "Score fidelity: Accept a policy change"
+text = "Only a human can make a proposal active"
+source = "capabilities.md §13"
+milestone = "M3"
+
+[[req]]
+id = "CAP-14.01"
+title = "Connect and protect: Serve tools"
+text = "Expose published tools over MCP, each call metered and recorded as an episode"
+source = "capabilities.md §14"
+milestone = "M6"
+
+[[req]]
+id = "CAP-14.02"
+title = "Connect and protect: Accept tasks"
+text = "Take A2A tasks, report state, deliver signed webhooks reliably"
+source = "capabilities.md §14"
+milestone = "M6"
+
+[[req]]
+id = "CAP-14.03"
+title = "Connect and protect: Publish an artifact"
+text = "Release a verified result (e.g. a DPP) with its full trace"
+source = "capabilities.md §14"
+milestone = "M6"
+
+[[req]]
+id = "CAP-14.04"
+title = "Connect and protect: Isolate tenants"
+text = "Reading any object by ID returns \"not found\" unless the caller may see it"
+source = "capabilities.md §14"
+milestone = "M2"
+
+[[req]]
+id = "CAP-14.05"
+title = "Connect and protect: Guard outbound calls"
+text = "Never let a tenant-supplied URL reach a private address"
+source = "capabilities.md §14"
+milestone = "M2"
+
+[[req]]
+id = "CAP-14.06"
+title = "Connect and protect: Keep secrets"
+text = "Encrypt credentials and signing keys at rest"
+source = "capabilities.md §14"
+milestone = "M2"
+
+[[req]]
+id = "CAP-15.01"
+title = "Build and ship apps: Register an app"
+text = "Submit a manifest tying a canonical document schema, a fleet, a workspace template and a UI; store manifest and template as artifacts so later edits never change existing workspaces"
+source = "capabilities.md §15"
+milestone = "M3"
+
+[[req]]
+id = "CAP-15.02"
+title = "Build and ship apps: Define the canonical document"
+text = "Publish a JSON Schema so UIs can validate it and agents know what shape to produce"
+source = "capabilities.md §15"
+milestone = "M3"
+
+[[req]]
+id = "CAP-15.03"
+title = "Build and ship apps: Assemble a fleet"
+text = "Reuse bestiary agents, fork variants or author new ones; register the fleet as a reusable composition"
+source = "capabilities.md §15"
+milestone = "M6"
+
+[[req]]
+id = "CAP-15.04"
+title = "Build and ship apps: Spawn a workspace"
+text = "Provision a runtime from the template: budget, auto-hired agents, initial files"
+source = "capabilities.md §15"
+milestone = "M3"
+
+[[req]]
+id = "CAP-15.05"
+title = "Build and ship apps: Read and write state"
+text = "The UI reads and writes the canonical document in the workspace"
+source = "capabilities.md §15"
+milestone = "M3"
+
+[[req]]
+id = "CAP-15.06"
+title = "Build and ship apps: Invoke agents"
+text = "Message an agent in the workspace (charges its budget) or execute one directly (charges the user's wallet)"
+source = "capabilities.md §15"
+milestone = "M3"
+
+[[req]]
+id = "CAP-15.07"
+title = "Build and ship apps: Set visibility"
+text = "Private, unlisted (anyone with the slug) or public (listed)"
+source = "capabilities.md §15"
+milestone = "M6"
+
+[[req]]
+id = "CAP-15.08"
+title = "Build and ship apps: Share a workspace"
+text = "Let colleagues work in the same workspace"
+source = "capabilities.md §15"
+milestone = "M6"
+
+[[req]]
+id = "CAP-15.09"
+title = "Build and ship apps: Be discovered"
+text = "Xaman Ek describes the app from its manifest's description and tagline"
+source = "capabilities.md §15"
+milestone = "M6"
+
+[[req]]
+id = "CAP-15.10"
+title = "Build and ship apps: Price an app"
+text = "Metered or subscription pricing with a revenue share; reserved, inert until revenue accounting ships"
+source = "capabilities.md §15"
+milestone = "M6"

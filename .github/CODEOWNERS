@@ -1,0 +1,9 @@
+# Verification assets and design documents need the owner's review.
+*                       @ilabra-axo
+/docs/design/           @ilabra-axo
+/docs/decisions/        @ilabra-axo
+/docs/requirements/     @ilabra-axo
+/xtask/                 @ilabra-axo
+/tests/                 @ilabra-axo
+/.github/               @ilabra-axo
+/AGENTS.md              @ilabra-axo
