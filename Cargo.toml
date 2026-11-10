@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["xtask"]
+members = ["crates/abw-canon", "crates/abw-ledger", "crates/abw-ledger-macros", "xtask"]
 
 [workspace.package]
 edition = "2024"
