@@ -1,6 +1,6 @@
 # ADR-0003: Allowance plus ACN replaces wallets, credits and Stripe
 
-- Status: accepted
+- Status: accepted; the unit and grant rules are amended by ADR-0006
 - Date: 2026-11-10
 - Decider: Ivan Labra
 

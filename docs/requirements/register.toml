@@ -234,22 +234,22 @@ milestone = "M1"
 [[req]]
 id = "ECO-1"
 title = "Allowance changes only through its own events"
-text = "An allowance changes only through events on its allowance:<owner> stream; available = funded + granted - consumed - held is a projection the database will not change without an event."
-source = "economy.md"
+text = "An allowance (in compute units) changes only through events on its allowance:<owner> stream; its buckets (free_tier, granted, purchased), held and available are a projection the database will not change without an event."
+source = "economy.md; ADR-0006"
 milestone = "M2"
 
 [[req]]
 id = "ECO-2"
-title = "Funding requires a settled ACN commitment"
-text = "allowance.funded requires a settled ACN commitment reference verified by abw-acn and is idempotent on that reference."
-source = "economy.md"
+title = "Purchases require a settled ACN commitment"
+text = "allowance.funded requires a settled ACN commitment reference verified by abw-acn, converts sats to CU at the cited price_version, and is idempotent on that reference."
+source = "economy.md; ADR-0006"
 milestone = "M4"
 
 [[req]]
 id = "ECO-3"
-title = "Grants are operator-only and capped"
-text = "allowance.granted requires the operator actor and is capped per owner by policy."
-source = "economy.md"
+title = "Grants follow the grant policy"
+text = "Every allowance.granted cites an active human-accepted grant policy version and stays within it: onboarding once per owner; the free tier once per month, topping up to the cap and never above it; operator grants only by a human operator with a reason, within the per-owner limit. No other actor or kind can grant."
+source = "economy.md; ADR-0006"
 milestone = "M2"
 
 [[req]]
@@ -275,9 +275,9 @@ milestone = "M2"
 
 [[req]]
 id = "ECO-7"
-title = "Non-negative available and held"
-text = "available >= 0 and held >= 0 are enforced by the database."
-source = "economy.md"
+title = "Non-negative balances"
+text = "Every bucket, held and available stay at or above zero, enforced by the database; consumption draws free_tier, then granted, then purchased."
+source = "economy.md; ADR-0006"
 milestone = "M2"
 
 [[req]]
@@ -299,8 +299,8 @@ milestone = "M4"
 [[req]]
 id = "PROT-01"
 title = "cohere_and_coordinate is carried over in full"
-text = "TEC coherence (Gamma), destructive/productive conflict classification, cascade of coordination observations into members' memory (strategist-only, current members only), the coordination brief, and the valence-homophily guard computed in code, not prompt text."
-source = "PLAN.md §9; harvest/agents.md"
+text = "cohere_and_coordinate is the only coherence agent. TEC coherence (Gamma) is a deterministic tool; destructive/productive conflict classification; the coordination brief; the valence-homophily guard computed in code, not prompt text; and every coordination observation the seated strategist records is delivered by the platform to each current member's episodic memory in the same transaction."
+source = "PLAN.md §9; harvest/agents.md; ADR-0007"
 milestone = "M5"
 
 [[req]]
