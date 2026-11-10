@@ -19,6 +19,17 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ABW_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.93.1
@@ -29,6 +40,8 @@ jobs:
         run: cargo fmt --all --check
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: static checks (T1, T5, T16, ECO-9)
+        run: cargo xtask check
       - name: trace (runs the tests)
         run: cargo xtask trace --summary "$GITHUB_STEP_SUMMARY"
 

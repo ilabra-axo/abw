@@ -1,0 +1,10 @@
+# Permitted task spawns in product code (T5: no trust effect runs in a detached task).
+#
+# Each entry allows `count` spawn sites in `path`. Every entry must be class "non_trust"
+# with a reason. Adding an entry needs the owner's review (CODEOWNERS on xtask/).
+#
+# [[site]]
+# path = "crates/abw-server/src/worker.rs"
+# count = 1
+# reason = "worker supervisor loop; each job commits its own effects through abw-ledger"
+# class = "non_trust"

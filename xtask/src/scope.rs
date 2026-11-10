@@ -24,7 +24,8 @@ pub fn classify(path: &str) -> Kind {
         return Kind::Verification;
     }
     let product = p.starts_with("migrations/")
-        || (p.starts_with("crates/") && (p.contains("/src/") || p.ends_with("/build.rs")));
+        || (p.starts_with("crates/")
+            && (p.contains("/src/") || p.contains("/migrations/") || p.ends_with("/build.rs")));
     if product {
         Kind::Product
     } else {

@@ -241,6 +241,8 @@ fn path_classification() {
     for (p, k) in [
         ("crates/abw-ledger/src/lib.rs", Product),
         ("migrations/0001_ledger.sql", Product),
+        ("crates/abw-ledger/migrations/0001_ledger.sql", Product),
+        ("crates/abw-ledger/Cargo.toml", Neutral),
         ("crates/abw-ledger/tests/append.rs", Verification),
         ("tests/conformance/t1.rs", Verification),
         ("xtask/src/main.rs", Verification),
