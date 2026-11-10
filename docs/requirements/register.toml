@@ -8,7 +8,7 @@
 # Fields: id, title, text, source, milestone (M0..M6), optional note.
 
 [meta]
-current = "M0"
+current = "M1"
 milestones = ["M0", "M1", "M2", "M3", "M4", "M5", "M6"]
 
 # ---------------------------------------------------------------- governance (the harness)
