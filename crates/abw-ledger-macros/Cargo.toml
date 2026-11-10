@@ -1,0 +1,15 @@
+[package]
+name = "abw-ledger-macros"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "read_query!: compile-time SELECT-only check for ReadDb queries (target-system-design §3.9, OD-09)"
+
+[lib]
+proc-macro = true
+
+# No dependencies: the literal is read from `proc_macro` tokens directly.
+
+[lints]
+workspace = true

@@ -1,0 +1,31 @@
+[package]
+name = "abw-ledger"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The event store and the only write boundary (target-system-design §3)"
+
+[features]
+# ADR-0004 item 4: `Ledger::inject_fault` for the T5 tests. Never enabled outside tests.
+fault-injection = []
+
+[dependencies]
+abw-canon = { path = "../abw-canon" }
+abw-ledger-macros = { path = "../abw-ledger-macros" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "json", "uuid"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+# The package itself with fault injection on, so the T5 tests can reach `inject_fault`.
+abw-ledger = { path = ".", features = ["fault-injection"] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "json", "uuid"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+uuid = { version = "1", features = ["v4"] }
+
+[lints]
+workspace = true
