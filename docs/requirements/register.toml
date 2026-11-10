@@ -191,6 +191,44 @@ text = "No theta or routing policy changes without a human-accepted policy.adjus
 source = "target-system-design §1.2, §11.4"
 milestone = "M3"
 
+# ---------------------------------------------------------------- substrate mechanisms (target-system-design §2-3)
+
+[[req]]
+id = "SUB-01"
+title = "Single-writer boot fence"
+text = "A process may open the write pool only while holding the singleton advisory lock; a second process fails to acquire it and cannot write."
+source = "target-system-design §2.6"
+milestone = "M1"
+
+[[req]]
+id = "SUB-02"
+title = "Migrations run once, are checksummed, and gate boot"
+text = "The ledger's migration runner applies each migration once and records its checksum; a re-run applies nothing; a changed checksum or an unmigrated database makes migration and boot fail."
+source = "target-system-design §3; legacy G16"
+milestone = "M1"
+
+[[req]]
+id = "SUB-03"
+title = "Side effects leave through the transactional outbox"
+text = "An outbox job is written in the same transaction as the event that causes it and references that event (source_pos); if the transaction aborts, neither exists."
+source = "target-system-design §3.1.6, §3.2.1 step 11"
+milestone = "M1"
+
+[[req]]
+id = "SUB-04"
+title = "Async projectors never skip an event"
+text = "Async consumers read in (txid, global_pos) order below the snapshot xmin, so an event committed late with a lower position is still consumed exactly once."
+source = "target-system-design §3.5; Appendix D cases 25-27"
+milestone = "M3"
+note = "Due with the first async projector."
+
+[[req]]
+id = "SUB-05"
+title = "Idempotent commands"
+text = "A command retried with the same idempotency key and request returns the stored result and appends nothing; the same key with a different request is rejected with IdempotencyMismatch."
+source = "target-system-design §3.2.1 step 2, §3.10"
+milestone = "M1"
+
 # ---------------------------------------------------------------- economy (economy.md)
 
 [[req]]

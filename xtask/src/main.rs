@@ -5,12 +5,13 @@
 //!   at the current milestone is unmet. `--list` skips running tests.
 //! - `pr-scope --base REF` fails if the diff against REF mixes product code and
 //!   verification assets (GOV-04).
+//! - `check` runs the static checks in `xtask::checks` over the repository.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use xtask::{register::Register, results, scope, tags, trace};
+use xtask::{checks, register::Register, results, scope, tags, trace};
 
 const REGISTER: &str = "docs/requirements/register.toml";
 const SCAN_ROOTS: &[&str] = &["tests", "crates", "xtask"];
@@ -20,9 +21,11 @@ fn main() -> ExitCode {
     let result = match args.first().map(String::as_str) {
         Some("trace") => cmd_trace(&args[1..]),
         Some("pr-scope") => cmd_pr_scope(&args[1..]),
-        _ => {
-            Err("usage: cargo xtask <trace [--list] [--summary FILE] | pr-scope --base REF>".into())
-        }
+        Some("check") => cmd_check(),
+        _ => Err(
+            "usage: cargo xtask <trace [--list] [--summary FILE] | pr-scope --base REF | check>"
+                .into(),
+        ),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -156,6 +159,23 @@ fn mark_ignored(
         }
     }
     map
+}
+
+fn cmd_check() -> Result<(), String> {
+    let root = root()?;
+    let meta = checks::cargo_metadata(&root)?;
+    let findings = checks::repo(&root, &meta)?;
+    if findings.is_empty() {
+        println!("check: ok");
+        Ok(())
+    } else {
+        let lines: Vec<String> = findings.iter().map(ToString::to_string).collect();
+        Err(format!(
+            "check: {} finding(s)\n  {}",
+            findings.len(),
+            lines.join("\n  ")
+        ))
+    }
 }
 
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
