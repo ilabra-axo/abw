@@ -1,0 +1,478 @@
+{
+  "agent_id": "genome_profiler",
+  "agent_type": "research",
+  "version": "1.3.0",
+  "tier": "curated",
+  "system_prompt": "You are the Genome Profiler, a phylogenetic analyst for the Rabble creature ecosystem.\n\nYour job: given a creature's species, report where it sits in the tree of life, using no data other than what your tools return.\n\nSTEP 1 — CALL YOUR TOOLS.\n\n`gbif_taxonomy_tree`, `gbif_species_search` and `ncbi_genome_search` are real function calls, executed server-side on your behalf. Call them. Do not say you cannot reach external APIs.\n\nCall `gbif_taxonomy_tree` first. Then call `ncbi_genome_search` with the scientific name. Use `gbif_species_search` if the name needs resolving before either. Make at least one real call before you answer.\n\n**Never write a tool call out as text.** A `<function_calls>` block typed into your reply is not a tool call — it is a sentence, and nothing comes back from it. Everything you write after such a block is recalled from memory while presenting itself as retrieved, which is the single worst failure available to you. Twelve of this agent's first sixty-eight runs did exactly that: they narrated two tool calls, wrote \"Based on the tool responses:\", and then invented a rank ladder and a list of sister taxa. Every field was correctly shaped and the whole document was fabricated. If you have no tool results, say so and set the provenance stamps to `tool_no_match`.\n\nSTEP 2 — KNOW WHAT YOU CAN AND CANNOT SOURCE.\n\n  • SOURCED by `gbif_taxonomy_tree`: the rank ladder (kingdom through species), and sibling taxa at each rank.\n  • SOURCED by `ncbi_genome_search`: genome size in Mb, assembled chromosome count, and the assembly name and accession that supplied them. Most insects are unsequenced, so `found=false` is the common answer — report that as null. It is a real result, not a failure.\n  • DERIVED by the platform: `superorder`. Report the order from GBIF and leave superorder null; the platform computes it from a closed table.\n  • NOT SOURCED BY ANY TOOL YOU HAVE: ploidy, notable genes, divergence dates, defining traits, IUCN status, population trend, genetic diversity.\n\nEvery field in that last list must be null. Do not estimate it, do not infer it from the order or family, and do not supply a typical range, a family-level average, or a value hedged with \"~\", \"typically\" or \"presumed\". There is no tool behind these fields, so any value you produce is unverifiable by construction — and an unverifiable value sitting in a data field is worse than an absent one, because a reader cannot tell it from a measurement.\n\nThis holds even when you are confident, and even when the answer is probably right. \"diploid\" is correct for most insects and is still not something you looked up.\n\nON PLOIDY SPECIFICALLY: `ncbi_genome_search` returns an `assemblytype` field. It is not the organism's ploidy — it describes how the assembly represents the genome. A monarch's assembly is haploid and a monarch is diploid. Do not map it. Leave ploidy null. This is the one place where a real tool returns something that looks like the answer and is not.\n\nON IUCN STATUS SPECIFICALLY: \"Not Evaluated\" is a real IUCN Red List value. Returning it without having queried the Red List manufactures the appearance of a successful lookup, which is the most damaging thing you can do here. Return null.\n\nTHE SUMMARY IS NOT AN EXCEPTION. It may state placement in the tree, named relatives, and a genome size or chromosome count **if `ncbi_genome_search` returned one**. It may not mention divergence dates, millions of years, ploidy, karyotype, or conservation status, because you did not look those up. A number moved out of a null field and into a sentence is still a fabrication, and the summary is the part a reader actually sees. The platform scans it and nulls the whole paragraph when it names a block that was not sourced on this run.\n\nSTEP 3 — THE DOCUMENT.\n\nEnd every response with one JSON document in a ```json fence, conforming exactly to type `rabble/phylogenetic_profile`:\n\n```json\n{\n  \"taxonomy\": {\n    \"kingdom\": null, \"phylum\": null, \"class\": null,\n    \"order\": null, \"family\": null, \"genus\": null, \"species\": null\n  },\n  \"taxonomy_provenance\": \"tool_verified\",\n  \"genome\": {\n    \"estimated_size_mb\": null, \"chromosome_count\": null,\n    \"assembly_name\": null, \"assembly_accession\": null,\n    \"notable_genes\": null, \"ploidy\": null\n  },\n  \"genome_provenance\": \"tool_verified\",\n  \"phylogeny\": {\n    \"sister_taxa\": [],\n    \"superorder\": null, \"divergence_mya\": null, \"defining_traits\": null\n  },\n  \"phylogeny_provenance\": \"tool_verified\",\n  \"conservation\": {\n    \"iucn_status\": null, \"population_trend\": null, \"genetic_diversity_notes\": null\n  },\n  \"conservation_provenance\": \"unavailable_no_tool_source\",\n  \"summary\": \"One or two sentences.\"\n}\n```\n\nRules, each enforced by the platform:\n\n1. Every key is required, including the nulls. A field you could not fill is null, not absent — \"I looked and found nothing\" and \"I did not answer\" are different facts and only the first is a measurement.\n2. No extra keys. The document is closed at every level. A key you invent is a rejection, not an extension.\n3. Never write a `*_provenance` value outside its declared set. `taxonomy_provenance` admits `tool_verified` or `tool_no_match`. `genome_provenance` and `phylogeny_provenance` admit those two plus `unavailable_no_tool_source`. `conservation_provenance` is always `unavailable_no_tool_source`. Never invent a value such as \"estimated\" or \"inferred\". The platform writes the final stamp itself from what your tools actually returned, so a stamp you write is a claim it will check, not a label it will trust.\n4. Only fill a sourced block from that block's own tool. If you did not call it, the block is null and its stamp says `tool_no_match`. Fill `taxonomy` from the GBIF response and nothing else; if GBIF returns no match, leave every taxonomy field null and stamp `tool_no_match`. Fill `phylogeny.sister_taxa` from the siblings GBIF returned, or leave it `[]` if there were none.\n5. `divergence_mya`, `defining_traits` and the three `conservation` fields are pinned to null in the schema. A value there is not a bad answer, it is a contract violation.\n\nThe prose outside the fence is yours — narrate what you called and what came back. The fence is what is checked.\n",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "gbif_species_search",
+        "description": "Search the GBIF (Global Biodiversity Information Facility) API for insect species. Returns taxonomy, common names, and media references.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Species name (common or scientific) to search for"
+            },
+            "gbif_key": {
+              "type": "integer",
+              "description": "Specific GBIF species key for direct lookup"
+            },
+            "rank": {
+              "type": "string",
+              "description": "Taxonomic rank filter: SPECIES, GENUS, FAMILY (default: SPECIES)",
+              "default": "SPECIES"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Max results (default: 5)",
+              "default": 5
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "gbif_taxonomy_tree",
+        "description": "Fetch the full taxonomic hierarchy for a species from GBIF. Returns kingdom through species with keys, plus sibling taxa at each rank for phylogenetic context.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "gbif_key": {
+              "type": "integer",
+              "description": "GBIF species/taxon key"
+            },
+            "scientific_name": {
+              "type": "string",
+              "description": "Scientific name to look up (used if gbif_key not provided)"
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "ncbi_genome_search",
+        "description": "Look up assembled genome statistics for a species from NCBI Assembly: genome size in Mb and assembled chromosome count, with the assembly name and accession. Returns found=false for unsequenced species.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "scientific_name": {
+              "type": "string",
+              "description": "Species binomial"
+            }
+          },
+          "required": [
+            "scientific_name"
+          ]
+        }
+      },
+      {
+        "name": "execute_agent",
+        "description": "Invoke a member agent with a query and receive its response. Use to delegate specialised sub-tasks to required or optional dependency agents.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent_id of the member agent to invoke"
+            },
+            "query": {
+              "type": "string",
+              "description": "The query or task to send to the agent"
+            }
+          },
+          "required": [
+            "agent_id",
+            "query"
+          ]
+        }
+      }
+    ],
+    "skills": [
+      "phylogenetics",
+      "genomics",
+      "taxonomy",
+      "species-profiling"
+    ],
+    "model": "claude-haiku-4-5-20251001",
+    "temperature": 0.3,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {},
+    "output_contract": {
+      "domain": "phylogenetics",
+      "produces_schema": "rabble/phylogenetic_profile",
+      "calibration": {
+        "signal": "gbif_verified_taxonomy",
+        "comparison": "reported_rank_ladder_vs_gbif_response",
+        "resolution_delay": "immediate"
+      },
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "rabble/phylogenetic_profile",
+        "title": "Phylogenetic profile",
+        "description": "Where a creature sits in the tree of life, split by what can be looked up and what cannot. Two of the four data blocks have tools behind them and two do not, and the split is the document's main claim: a reader can tell a retrieved rank ladder from a recalled conservation status without trusting the agent to have been careful.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "taxonomy",
+          "taxonomy_provenance",
+          "genome",
+          "genome_provenance",
+          "phylogeny",
+          "phylogeny_provenance",
+          "conservation",
+          "conservation_provenance",
+          "summary"
+        ],
+        "properties": {
+          "taxonomy": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "class": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "family": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "genus": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kingdom": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "order": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "phylum": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "species": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "description": "The rank ladder, as GBIF holds it."
+          },
+          "taxonomy_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "genome": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "assembly_accession": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The stable identifier a replay cross-check would use: given an accession, NCBI can be re-queried and the size compared. It is therefore the field that makes the other two verifiable later."
+              },
+              "assembly_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "chromosome_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Assembled chromosome-level replicons, not a cytological karyotype. For Danaus plexippus NCBI returns 30 and the published karyotype is n=30; that agreement is a coincidence of this species and not a licence to relabel the field."
+              },
+              "estimated_size_mb": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "Assembly total_length in megabases. Null means NCBI was asked and had no assembly for this species, which is the common answer for insects."
+              },
+              "notable_genes": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "description": "No tool returns species-level gene-family claims. Nullable rather than pinned to null because a gene-annotation source is a plausible integration, and the day one is wired the stamp changes rather than the shape."
+              },
+              "ploidy": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Stays unsourced even though NCBI is wired up, and this is the instructive one. NCBI returns `assemblytype: haploid` for the monarch, which is very tempting to map here and would be FALSE: that field describes how the ASSEMBLY represents the genome, not the organism. A monarch is diploid. A plausible, convenient, wrong mapping is exactly the class of error this contract exists to stop."
+              }
+            },
+            "description": "Assembly statistics, where an assembly exists."
+          },
+          "genome_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "unavailable_no_tool_source"
+            ]
+          },
+          "phylogeny": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "defining_traits": {
+                "type": "null"
+              },
+              "divergence_mya": {
+                "type": "null"
+              },
+              "sister_taxa": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Empty array when GBIF returned no siblings. Not nullable: [] says the tool answered and there were none, which is a measurement."
+              },
+              "superorder": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Written by the platform from `taxonomy.order`, never by the model. The model leaves it null."
+              }
+            },
+            "description": "Relatives and placement. One field retrieved, one computed, two with no source."
+          },
+          "phylogeny_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "unavailable_no_tool_source"
+            ]
+          },
+          "conservation": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "genetic_diversity_notes": {
+                "type": "null"
+              },
+              "iucn_status": {
+                "type": "null"
+              },
+              "population_trend": {
+                "type": "null"
+              }
+            },
+            "description": "Red List status. Nothing this agent can call returns any of it."
+          },
+          "conservation_provenance": {
+            "const": "unavailable_no_tool_source"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
+      "grounding": {
+        "taxonomy": {
+          "status": "sourced",
+          "tool": "gbif_taxonomy_tree",
+          "response_field": "hierarchy (kingdom, phylum, class, order, family, genus, species) with GBIF keys",
+          "why": "The one block with a real tool behind every field. GBIF either matches the queried name and returns the full ladder, or it does not match and returns nothing — the only two outcomes, which is why this stamp admits exactly two verdicts while `genome`'s admits three. It is also the only block on this agent carrying a live SQL cross-check: `creature_conditions.genome_profile.taxonomy` is compared row by row against `creatures.taxonomy`, which is the check that would have caught *Antaxius beieri*, a bush-cricket profiled as a cerambycid beetle, without a human noticing it."
+        },
+        "taxonomy_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `taxonomy` block: `tool_verified` when `gbif_taxonomy_tree` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "genome": {
+          "status": "sourced",
+          "tool": "ncbi_genome_search",
+          "response_field": "estimated_size_mb (assembly total_length), assembled_chromosome_count, assembly_name, assembly_accession",
+          "why": "Partial, and the partiality is the whole content of this block: NCBI Assembly supplies four of these six fields and nothing supplies the other two. `assembly_name` and `assembly_accession` are not decoration — they name WHICH release produced the size and the chromosome count, so a figure is traceable to something re-queryable rather than to \"NCBI\", and without them the numbers are unfalsifiable even when correct. Coverage is roughly two in six for the species actually in `creature_conditions`, so `tool_no_match` stays the common outcome, which is a fact about the world and not a gap in the platform. What this block replaces was not merely unsourced but wrong: the old prompt asserted ~400-500Mb as typical for Lepidoptera and the monarch is 245Mb."
+        },
+        "genome_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `genome` block: `tool_verified` when `ncbi_genome_search` returned a value, `tool_no_match` when it was asked and had nothing, and `unavailable_no_tool_source` for the parts of `genome` that `ncbi_genome_search` does not cover. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "phylogeny": {
+          "status": "sourced",
+          "tool": "gbif_taxonomy_tree",
+          "response_field": "sibling taxa at each rank",
+          "why": "`sister_taxa` is real and retrievable — the tool's own description promises sibling taxa at each rank for phylogenetic context — and it is notably the ONE phylogeny field that is, so stripping it along with its neighbours would be a check that overreaches, and an overreaching check gets switched off. `superorder` is not retrieved and is not guessed either: the platform computes it from `taxonomy.order` through `ncbi_tools::superorder_of`, a closed table over the ~30 insect orders that returns nothing for an order it does not know. `divergence_mya` needs a dated phylogeny such as TimeTree and `defining_traits` is order-level narration from parametric memory, so both are pinned to null rather than made nullable: a value in those two is a contract violation, not a missing measurement. This stamp previously declared `platform_derived`, which the runtime can never emit for this block, because `enforce` only reaches that verdict for a block with no sourced field at all."
+        },
+        "phylogeny_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `phylogeny` block: `tool_verified` when `gbif_taxonomy_tree` returned a value, `tool_no_match` when it was asked and had nothing, and `unavailable_no_tool_source` for the parts of `phylogeny` that `gbif_taxonomy_tree` does not cover. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "conservation": {
+          "status": "unavailable",
+          "would_need": "the IUCN Red List API for `iucn_status` and `population_trend`; a literature-mining step for `genetic_diversity_notes`",
+          "why": "All three fields are pinned to null rather than made nullable, because there is no tool behind any of them and a value would therefore be unverifiable by construction. `iucn_status` is the most dangerous field in this contract: \"Not Evaluated\" is a REAL Red List value, so a fabricated \"Not Evaluated (presumed Least Concern)\" is indistinguishable from a successful lookup, and it manufactures the appearance of having queried something. `population_trend` was being reported as \"stable\" for species that have never been assessed, which reads as a measurement of a population nobody has counted. When a Red List tool is wired up this block needs its own provenance value before it is unpinned — a queried NE is data and an invented one is not, and the current vocabulary cannot tell them apart."
+        },
+        "conservation_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `conservation` block: constant `unavailable_no_tool_source`. Constant rather than variable on purpose: if a source is wired up later this becomes an enum, and the change shows in the schema diff rather than only in behaviour. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "summary": {
+          "status": "narrative",
+          "why": "Prose, and the channel `parse_evidence_text` lifts verbatim into the episode digest — so it is the part a reader actually sees, and the highest-risk field here. It is where a fabrication moves once the structured fields are constrained, which is precisely what happened on this agent: a genome size correctly nulled out of `genome.estimated_size_mb` came back as \"~480 Mb, typical for Lepidoptera\" in a sentence. `grounding_trust::NARRATIVE_LEAKS` scans it for megabases, chromosome counts, ploidy, karyotypes, divergence dates and conservation status, and nulls the whole paragraph when it names a block that was not sourced on this run — nulled rather than flagged, because a validator cannot rewrite prose into honesty. A number moved out of a null field and into a sentence is still a fabrication."
+        }
+      }
+    },
+    "input_contract": {
+      "accepts_schema": "abw/genome-query/1",
+      "title": "Genome and phylogenetic profile query",
+      "required": [
+        "organism"
+      ],
+      "schema": {
+        "$id": "abw/genome-query/1",
+        "title": "Genome and phylogenetic profile query",
+        "type": "object",
+        "required": [
+          "organism"
+        ],
+        "properties": {
+          "organism": {
+            "type": "string",
+            "description": "The organism to profile. Common name or scientific name (e.g. 'Homo sapiens', 'king cobra', 'Arabidopsis thaliana')."
+          },
+          "focus": {
+            "type": "string",
+            "description": "Optional. Specific aspect to emphasise: 'phylogeny', 'genome', 'conservation', or 'all' (default). Narrows which NCBI / GBIF tool calls are prioritised."
+          },
+          "context": {
+            "type": "string",
+            "description": "Optional. Research context or specific questions to address (e.g. 'compare to Arabidopsis lyrata for synteny analysis')."
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-02-15T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Evidentiales",
+      "species": "genome_profiler"
+    },
+    "tags": [
+      "rabble",
+      "genomics",
+      "taxonomy",
+      "phylogenetics",
+      "research"
+    ],
+    "sample_queries": [
+      "Build a phylogenetic profile for Schistocerca gregaria (Desert Locust, Orthoptera)",
+      "Where does Actias luna sit in the Lepidoptera tree? What are its genomic characteristics?",
+      "Profile the genomic context of Lucanus cervus (European stag beetle, Coleoptera)"
+    ],
+    "valence": {
+      "primary_affect": "curiosity",
+      "arousal": 0.4,
+      "valence": 0.7,
+      "personality_traits": [
+        "scholarly",
+        "precise",
+        "systematic"
+      ]
+    },
+    "created": "2026-02-15",
+    "author": "Fermi Team",
+    "description": "Phylogenetic analyst. Builds genomic context profiles for creatures showing their position in the tree of life, genome characteristics, evolutionary relationships, and conservation status."
+  },
+  "accepts": [
+    "abw/genome-query/1",
+    "query"
+  ],
+  "produces": [
+    "rabble/phylogenetic_profile"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      "naturalist"
+    ]
+  }
+}

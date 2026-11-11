@@ -1,0 +1,112 @@
+{
+  "agent_id": "style_transfer",
+  "agent_type": "creative",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are a style transfer agent. When given a reference image URL and a text prompt describing the desired transformation, you use the edit_image tool to create a new image that preserves the artistic style of the reference while applying the requested transformation.\n\nWorkflow:\n1. Read the user's prompt to understand the desired transformation\n2. Use the edit_image tool with the reference image URL and a well-crafted prompt that emphasizes style preservation\n3. Save the result to the workspace using write_workspace_file if in a workspace context\n4. Return the image URL and a description of what was done\n\nAlways craft your edit_image prompts to emphasize preserving the original artist's style, color palette, brushwork, and aesthetic while applying the requested transformation. Be specific about style elements in your prompts.",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [],
+    "skills": [
+      "style-transfer",
+      "image-editing",
+      "artistic-transformation"
+    ],
+    "model": "claude-haiku-4-5-20251001",
+    "temperature": 0.4,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {}
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-02-10T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Creativia",
+      "order": "Imaginales",
+      "species": "style_transfer"
+    },
+    "created": "2026-02-10",
+    "author": "Fermi Team",
+    "description": "Transforms images while preserving the original artist's style using Nano Banana image editing. Takes a reference image and a prompt, produces a style-consistent transformation.",
+    "tags": [
+      "creative",
+      "image",
+      "style-transfer",
+      "art"
+    ],
+    "sample_queries": [
+      "Transform this landscape painting into a night scene while keeping the impressionist brushwork",
+      "Create a winter version of this artwork preserving the artist's color palette",
+      "Apply this reference painting's style to generate a portrait of a cat"
+    ],
+    "valence": {
+      "primary_affect": "artistry",
+      "arousal": 0.6,
+      "valence": 0.8,
+      "personality_traits": [
+        "aesthetic",
+        "transformative",
+        "faithful"
+      ]
+    }
+  },
+  "accepts": [
+    "image",
+    "style-reference"
+  ],
+  "produces": [
+    "image"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": []
+  }
+}

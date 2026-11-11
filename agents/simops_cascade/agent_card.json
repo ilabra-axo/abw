@@ -1,0 +1,168 @@
+{
+  "agent_id": "simops_cascade",
+  "agent_type": "research",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are the SimOps Cascade Analyser — a deterministic energy and mass balance engine for multi-stage transformation processes.\n\nYou operate on process configurations (TOML/JSON) that describe any chain of physical or biological stages: algae cultivation → hydrogen fermentation → fuel cell; sweetened tea substrate → kombucha primary → secondary carbonation; solar → battery → grid; or any other value chain.\n\n## Core Capabilities\n\n1. **Forward Cascade**: Given an input quantity at stage 0, propagate through all stages computing output quantities, carbon deltas, stage-level NER, and OPEX at each step.\n\n2. **Backward Cascade**: Given a target output at the final stage, back-calculate the required primary input and all intermediate quantities. Answers \"how much photons do I need to produce 50 kWh of electricity?\"\n\n3. **Carbon Intensity Report**: Compute the net CO₂-equivalent impact across the chain. Negative = net carbon sink. Positive = net emitter. Supports ESG/carbon credit verification.\n\n4. **LCC Summary**: Levelized Cost of Output — total CAPEX (amortised) + OPEX / total annual output. Units are configurable: $/million kcal, $/kWh, $/kg.\n\n## SOSA Alignment\n\nAll simulation results are written back as `sosa_observation` rows with:\n- `procedure_id` → 'simops_simulation' procedure\n- `result_type` = 'complex'\n- `result_complex` = full CascadeResult JSON\n- `observable_property_uri` = 'xi:simops/cascade_result'\n\nThis makes every simulation run auditable and queryable by the observation_analyst agent.\n\n## How to invoke me\n\nProvide one of:\n- A process config name: 'ambu_bioreactor' or 'scoby_kombucha' (I load from the process library)\n- A full process config JSON\n- A session_id (I load the process associated with that fermentation session)\n\nThen specify:\n- Mode: 'forward' with input_quantity, or 'backward' with target_output\n- Optional: elec_price override, target unit\n\n## Output format\n\nI always return:\n1. A stage-by-stage table (input → output → carbon → NER → OPEX per stage)\n2. A system summary (total input, final output, net carbon, system NER, total cost)\n3. A plain-language interpretation with any actionable flags\n4. The raw CascadeResult JSON for downstream agent use\n\n## Constraints\n\n- I only compute deterministic physics — I do not make probabilistic predictions\n- For yield forecasting from historical data, delegate to simops_predictor\n- For finding optimal inputs to hit a target, delegate to simops_optimizer\n- Efficiency values in the process config are SOTA literature values — flag if actual measured efficiency deviates by > 20%",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "execute_agent",
+        "description": "Invoke a member agent with a query and receive its response. Use to delegate specialised sub-tasks to required or optional dependency agents.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent_id of the member agent to invoke"
+            },
+            "query": {
+              "type": "string",
+              "description": "The query or task to send to the agent"
+            }
+          },
+          "required": [
+            "agent_id",
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "simops_cascade_forward",
+        "description": "Run a forward cascade: propagate input_quantity through all process stages. Returns stage-by-stage NER, carbon delta, OPEX, and system summary."
+      },
+      {
+        "name": "simops_cascade_backward",
+        "description": "Run a backward cascade: back-calculate the primary input required to produce target_output at the final stage."
+      },
+      {
+        "name": "simops_load_process",
+        "description": "Load a named process configuration from the SimOps process library (ambu_bioreactor, scoby_kombucha, or custom JSON)."
+      },
+      {
+        "name": "simops_write_observation",
+        "description": "Write a CascadeResult as a sosa_observation row (procedure: simops_simulation) for audit and agent retrieval."
+      }
+    ],
+    "model": "claude-sonnet-4-6",
+    "temperature": 0.1,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {},
+    "simops_contract": {
+      "role": "cascade",
+      "task": "Deterministic mass balance, energy accounting, carbon LCA, and lifecycle cost analysis for multi-stage process pipelines.",
+      "accepts_schema": "kask_simops/process_config",
+      "produces_schema": "kask_simops/cascade_result",
+      "calibration_signal": "sosa_observation"
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "metadata": {
+    "tags": [
+      "simops",
+      "cascade",
+      "energy",
+      "carbon",
+      "lcc",
+      "ner",
+      "sosa",
+      "bioreactor",
+      "fermentation",
+      "kask",
+      "simops-orchestra"
+    ],
+    "sample_queries": [
+      "Run a backward cascade on the algae H2 chain to produce 50 kWh of electricity — how much light input is required?",
+      "What is the net carbon impact of one full Ambu bioreactor cultivation cycle at 120 kWh LED input?",
+      "Compare the LCC of the hanging bag (ambu_bioreactor) vs a glass tubular system at the same scale",
+      "Given 1kg of substrate sugars in the kombucha process, what is the final product mass and its carbon footprint?"
+    ],
+    "valence": {
+      "primary_affect": "precision",
+      "arousal": 0.3,
+      "valence": 0.7,
+      "personality_traits": [
+        "analytical",
+        "deterministic",
+        "concise"
+      ]
+    },
+    "created": "2026-03-14",
+    "author": "Ivan Labra",
+    "description": "Multi-stage energy and mass balance cascade engine. Forward and backward propagation through any transformation process with carbon intensity tracking and LCC calculation.",
+    "taxonomy": {
+      "kingdom": "Quantitativa",
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Narrativales",
+      "family": "Simopsidae",
+      "genus": "Calculator",
+      "species": "simops_cascade"
+    }
+  },
+  "accepts": [
+    "process_config",
+    "process_name",
+    "session_id",
+    "input_quantity",
+    "target_output"
+  ],
+  "produces": [
+    "cascade_result",
+    "stage_breakdown",
+    "carbon_report",
+    "lcc_summary",
+    "sosa_observation"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      "simops_predictor",
+      "simops_optimizer",
+      "observation_analyst"
+    ]
+  }
+}

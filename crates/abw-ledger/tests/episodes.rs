@@ -1,4 +1,3 @@
-#![cfg(any())]
 //! Episodes as streams with TX-A / TX-B / TX-C at the ledger level (target-system-design
 //! §4.5-§4.7; economy.md §3, §5; ADR-0008 §4 `episode`, `reaper`).
 //!
@@ -770,7 +769,6 @@ async fn a_record_cannot_claim_an_allowed_call_to_a_tool_off_the_allowlist() {
 
 // @req T5, ECO-5, CAP-12.02, T9
 #[tokio::test]
-#[ignore = "pending M2: abw_ledger::episode and reaper land with the M2 product PR"]
 async fn a_fault_at_any_tx_c_step_leaves_the_episode_open_and_the_hold_for_the_reaper() {
     let w = world().await;
     let big = accept_grant(&w.ledger, TENANT_A, 5_000, 0, 1000).await;

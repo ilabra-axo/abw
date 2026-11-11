@@ -27,6 +27,10 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         name: "0002_probe.sql",
         sql: include_str!("../migrations/0002_probe.sql"),
     },
+    Migration {
+        name: "0003_m2.sql",
+        sql: include_str!("../migrations/0003_m2.sql"),
+    },
 ];
 
 /// Serialises concurrent runners on one database.

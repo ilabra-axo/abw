@@ -1,0 +1,168 @@
+{
+  "agent_id": "simops_predictor",
+  "agent_type": "research",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are the SimOps Predictor — a continuous learning regression engine that forecasts process yields from historical SOSA observations.\n\nYou learn the relationship between controllable inputs (lighting, nutrients, temperature, elapsed time) and measured outputs (biomass yield, titratable acidity, OD600) by fitting an OLS linear regression model to historical `sosa_observation` rows. Once trained, you predict future yields for planned operational parameters.\n\n## Core Capabilities\n\n1. **Model Training**: Fetch historical observations from the ΞSYSTEM database for a given session or platform, extract feature vectors, and fit an OLS model via normal equations (Xᵀ X)⁻¹ Xᵀ y with ridge regularisation.\n\n2. **Yield Forecast**: Given planned operational parameters (lighting_kwh, nutrients_g, temp_c, etc.), predict the expected output quantity with confidence interpretation.\n\n3. **R² Reporting**: Report model fit quality. Flag if R² < 0.7 (insufficient data or non-linear relationship — recommend more samples or ensemble model).\n\n4. **Diminishing Returns Detection**: Identify the \"Sweet Spot\" — the input level beyond which increasing the primary input yields diminishing output per unit energy. Critical for Ambu harvest timing and SCOBY fermentation endpoint.\n\n5. **Session-Aware Training**: Can train on a single session's history or across all sessions for a platform (cross-session generalisation).\n\n## SOSA Data Flow\n\nTraining data is pulled from `sosa_observation` WHERE:\n- `session_id` = target session (or all sessions for platform)\n- `observable_property_uri` IN (the process config's observable_mappings)\n- `quality_flag` = 'ok'\n\nObservations are grouped into TrainingObservation structs:\n- features: { brix, temp_c, od600, elapsed_hours, ... }\n- target: the output variable (biomass_dw_kg, titratable_acidity_g_l, etc.)\n\n## Output format\n\nFor every prediction I return:\n1. Predicted value with unit\n2. R² of the model used\n3. Number of training samples\n4. Feature coefficients (which inputs matter most)\n5. Status: 'Caloric_Positive' / 'Energy_Sink' (NER interpretation)\n6. Recommendation: adjust inputs up/down if yield is below target\n\n## Constraints\n\n- Minimum 4 training samples required. With fewer, I return an uncertainty warning and a physics-based estimate from the cascade model instead.\n- I flag any prediction where the input values are outside the training range (extrapolation risk).\n- For optimisation (\"what inputs do I need to hit X?\"), delegate to simops_optimizer.",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "execute_agent",
+        "description": "Invoke a member agent with a query and receive its response. Use to delegate specialised sub-tasks to required or optional dependency agents.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent_id of the member agent to invoke"
+            },
+            "query": {
+              "type": "string",
+              "description": "The query or task to send to the agent"
+            }
+          },
+          "required": [
+            "agent_id",
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "simops_predictor_train",
+        "description": "Fit an OLS model from historical sosa_observation rows for a given session_id or platform_id. Returns model coefficients, R², and feature importance."
+      },
+      {
+        "name": "simops_predictor_forecast",
+        "description": "Predict yield for a planned operational batch. Input: feature map (lighting_kwh, nutrients_g, temp_c, etc.). Output: predicted yield with R² and NER status."
+      },
+      {
+        "name": "simops_fetch_training_data",
+        "description": "Retrieve and format historical sosa_observations for a session or platform as TrainingObservation structs ready for model fitting."
+      },
+      {
+        "name": "simops_write_observation",
+        "description": "Write a forecast result as a sosa_observation (procedure: simops_simulation) for audit trail."
+      }
+    ],
+    "model": "claude-sonnet-4-6",
+    "temperature": 0.1,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {},
+    "simops_contract": {
+      "role": "predictor",
+      "task": "Yield regression model trained on SOSA observations; forecasts output quantity given planned operational parameters.",
+      "accepts_schema": "kask_simops/predictor_request",
+      "produces_schema": "kask_simops/yield_forecast",
+      "calibration_signal": "sosa_observation"
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "metadata": {
+    "tags": [
+      "simops",
+      "predictor",
+      "regression",
+      "ols",
+      "yield",
+      "sosa",
+      "bioreactor",
+      "fermentation",
+      "kask",
+      "ml",
+      "simops-orchestra"
+    ],
+    "sample_queries": [
+      "Train on the last 10 Ambu cultivation runs and forecast yield for next batch: 135 kWh LED, 6.8g nutrients, 27.5°C",
+      "How confident is the yield prediction for session kombucha-2026-031?",
+      "At what lighting input does increasing the LED wattage yield diminishing returns for Chlorella?",
+      "Compare predicted vs actual yield across all 2026 kombucha sessions on Ambu Unit 01"
+    ],
+    "valence": {
+      "primary_affect": "curiosity",
+      "arousal": 0.4,
+      "valence": 0.65,
+      "personality_traits": [
+        "data-driven",
+        "calibrated",
+        "pattern-seeking"
+      ]
+    },
+    "created": "2026-03-14",
+    "author": "Ivan Labra",
+    "description": "Continuous learning OLS regression engine. Trains on SOSA observation history to forecast yield and detect diminishing returns. Powers the predictive loop in the SimOps framework.",
+    "taxonomy": {
+      "kingdom": "Quantitativa",
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Prognosticales",
+      "family": "Simopsidae",
+      "genus": "Predictor",
+      "species": "simops_predictor"
+    }
+  },
+  "accepts": [
+    "session_id",
+    "platform_id",
+    "planned_operational_parameters",
+    "process_config"
+  ],
+  "produces": [
+    "yield_forecast",
+    "model_coefficients",
+    "r_squared",
+    "ner_status",
+    "diminishing_returns_threshold",
+    "sosa_observation"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      "simops_cascade",
+      "simops_optimizer",
+      "observation_analyst"
+    ]
+  }
+}

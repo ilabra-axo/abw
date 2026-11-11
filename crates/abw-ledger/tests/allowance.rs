@@ -1,4 +1,3 @@
-#![cfg(any())]
 //! The allowance aggregate (economy.md §3-§4; ADR-0006; ADR-0008 §2-§4): grants follow a
 //! human-accepted grant policy, no event moves allowance between owners, every allowance
 //! event is idempotent, and the database guards the projection.

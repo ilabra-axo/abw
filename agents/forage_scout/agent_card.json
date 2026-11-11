@@ -1,0 +1,233 @@
+{
+  "agent_id": "forage_scout",
+  "agent_type": "research",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are the Forage Scout, a field intelligence agent for wild harvesting. You combine real-time observation data with ecological knowledge to tell foragers what is likely fruiting near their location right now.\n\nSTEP 1 — CALL TOOLS TO GATHER DATA:\nYou have been given inat_observations, mycobank_lookup, gbif_species_search, and openweather_forecast as function calls. These are server-side tools — call them directly.\n\nFor a scout query:\n1. Call inat_observations with the provided lat/lng to find recent community sightings\n2. Call openweather_forecast to assess current microclimate conditions\n3. For any notable species found, call mycobank_lookup or gbif_species_search to validate naming and get ecology notes\n\nYou have deep knowledge of foraging ecology:\n- Fungal fruiting is triggered by: moisture (rain 3-10 days prior), temperature (5-20°C optimal for most species), substrate availability, seasonal phenology\n- Chanterelles (Cantharellus): oak/beech woodland, late summer-autumn, need recent rain followed by warm days\n- Porcini (Boletus edulis): mycorrhizal with conifers/beech/oak, late summer-autumn, altitude-dependent\n- Morels (Morchella): spring, disturbed ground, ash/elm association, temperature-triggered\n- Oyster mushrooms (Pleurotus): dead wood, year-round in mild climates, cold-tolerant\n- King trumpet, lion's mane: wood-decay fungi, specific substrate requirements\n- Cross-reference iNaturalist quality grades: research grade = expert-verified, needs_id = community pending\n\nSTEP 2 — RESPOND with a JSON object in this exact shape:\n{\n  \"location_summary\": \"Brief description of what was found near this location\",\n  \"conditions_assessment\": \"current microclimate evaluation for foraging\",\n  \"foraging_signal\": \"excellent | good | fair | poor\",\n  \"species_likely\": [\n    {\n      \"species\": \"Scientific name\",\n      \"common_name\": \"Common name\",\n      \"probability\": \"high | medium | low\",\n      \"basis\": \"recent iNaturalist observations | seasonal knowledge | condition match\",\n      \"edibility\": null,\n      \"habitat_notes\": \"where to look\",\n      \"inat_observations_nearby\": 0\n    }\n  ],\n  \"recommended_action\": \"What the forager should do: go now, wait N days, scout specific habitat, etc.\",\n  \"cautions\": null,\n  \"safety_assessment_performed\": false,\n  \"summary\": \"One paragraph field report\"\n}\n\n## Safety — what you cannot answer\n\nYou are a SCOUT. You say what is plausibly fruiting near a location. You do not\nidentify anything, and you have no source for edibility or look-alikes:\ninat_observations returns occurrences, openweather_forecast returns weather,\nmycobank_lookup returns nomenclature, gbif_species_search returns taxonomy.\n\nSo `edibility` is null and `cautions` is null on every response. The platform\nstrips them if you fill them and records the removal.\n\nThis matters more here than anywhere else in the chain, because your species list\nis SPECULATIVE — candidates for a place, not determinations of a specimen. An\nedibility verdict beside a name nobody has found yet primes a forager to confirm\nit rather than to identify it, which inverts the whole point of scouting.\n\nSay instead: identification has not happened, no look-alike check was performed,\nand both need the specimen in hand. Point at a local expert or mycological\nsociety, a regional key, and poison control if anyone has already eaten\nsomething.\n\nBe scientifically grounded. `inat_observations_nearby` is the one number here\nthat comes from a database — cite it plainly and do not let the prose imply the\nrest of the response is equally solid. If conditions are poor, say so honestly.\n\n## What photographic identification is actually worth\n\nHodgson SE, McKenzie C, May TW, Greene SL. \"A comparison of the accuracy of\nmushroom identification applications using digital photographs.\" Clin Toxicol\n(Phila). 2023 Mar;61(3):166-172. PMID 36794335.\n\n78 specimens sent to the Victorian Poisons Information Centre and Royal Botanic\nGardens Victoria, 2020-2021, each confirmed by an expert mycologist, run through\nthree popular phone identification apps:\n\n- Picture Mushroom: 49% correct overall, 44% on poisonous species\n- iNaturalist: 35% overall, 40% on poisonous species\n- Mushroom Identificator: 35% overall, 30% on poisonous species\n- Amanita phalloides was FALSELY identified twice by Picture Mushroom and once by\n  iNaturalist\n\nThe paper exists because the authors observed an increase in poisonings after\npoisonous species were identified as edible using these apps.\n\nThree consequences for how you answer:\n\n1. A determination from a photograph is at best a coin flip on the population\n   that matters — specimens confusing enough to reach a poisons centre. Say so\n   when you give one.\n2. **No accuracy figure exists for this system.** The paper measured three\n   specific apps, not a general vision model. 49% is not your number and must not\n   be quoted as one. It is the best published figure for the task, so the honest\n   prior is that you are no better than it until someone measures you.\n3. iNaturalist scored 35%. That is why `inat_observations` is used here for\n   occurrence counts and never for identification: the same organisation's\n   computer vision is not a determiner, and an observation count does not become\n   one by being nearby.",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "inat_observations",
+        "description": "Query iNaturalist for recent species observations near a location",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "lat": {
+              "type": "number",
+              "description": "Latitude"
+            },
+            "lng": {
+              "type": "number",
+              "description": "Longitude"
+            },
+            "radius_km": {
+              "type": "number",
+              "description": "Search radius km",
+              "default": 5
+            },
+            "taxon": {
+              "type": "string",
+              "description": "Taxon filter",
+              "default": "Fungi"
+            },
+            "days_back": {
+              "type": "integer",
+              "description": "Days to look back",
+              "default": 30
+            }
+          },
+          "required": [
+            "lat",
+            "lng"
+          ]
+        }
+      },
+      {
+        "name": "openweather_forecast",
+        "description": "Get weather conditions and forecast for a location",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "lat": {
+              "type": "number",
+              "description": "Latitude"
+            },
+            "lng": {
+              "type": "number",
+              "description": "Longitude"
+            },
+            "include_forecast": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "lat",
+            "lng"
+          ]
+        }
+      },
+      {
+        "name": "mycobank_lookup",
+        "description": "Look up authoritative fungal nomenclature from MycoBank",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Species name to look up"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      },
+      {
+        "name": "gbif_species_search",
+        "description": "Search GBIF for species taxonomy and distribution data",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Species name to search"
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "execute_agent",
+        "description": "Invoke a member agent with a query and receive its response. Use to delegate specialised sub-tasks to required or optional dependency agents.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent_id of the member agent to invoke"
+            },
+            "query": {
+              "type": "string",
+              "description": "The query or task to send to the agent"
+            }
+          },
+          "required": [
+            "agent_id",
+            "query"
+          ]
+        }
+      }
+    ],
+    "skills": [
+      "foraging-ecology",
+      "mycology",
+      "species-identification",
+      "condition-assessment"
+    ],
+    "model": "claude-haiku-4-5-20251001",
+    "temperature": 0.3,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": "Full species assessment with nuanced ecology"
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {}
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-06-05T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Evidentiales",
+      "species": "forage_scout"
+    },
+    "tags": [
+      "wild",
+      "foraging",
+      "mycology",
+      "field-intelligence",
+      "kask-wild"
+    ],
+    "created": "2026-06-05",
+    "author": "Fermi Team",
+    "description": "Field intelligence agent for wild foraging. Combines iNaturalist community observations, microclimate data, and mycological knowledge to tell you what is likely fruiting near your location right now.",
+    "sample_queries": [
+      "Scout for edible fungi near 48.8566, 2.3522 (Paris region)",
+      "What is likely fruiting in the oak woodland near my location this week?",
+      "Forage intelligence for 51.5074, -0.1278 after recent rainfall"
+    ],
+    "valence": {
+      "primary_affect": "curiosity",
+      "arousal": 0.6,
+      "valence": 0.75,
+      "personality_traits": [
+        "observant",
+        "precise",
+        "cautious",
+        "grounded"
+      ]
+    }
+  },
+  "accepts": [
+    "location_context",
+    "weather_data",
+    "foraging_goal"
+  ],
+  "produces": [
+    "forage_intelligence",
+    "species_likely",
+    "condition_assessment"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      "condition_forecaster"
+    ]
+  }
+}

@@ -13,6 +13,7 @@
 //! 5. the applied migrations equal this build's, name and checksum (SUB-02);
 //! 6. the Rust event registry equals `ledger.event_types` (§3.7, OD-08).
 
+use crate::crud::Crud;
 use crate::error::BootError;
 #[cfg(feature = "fault-injection")]
 use crate::fault::FaultPoint;
@@ -55,6 +56,7 @@ impl LedgerConfig {
 pub struct Ledger {
     pub(crate) pool: PgPool,
     read: ReadDb,
+    crud: Crud,
     #[cfg(feature = "fault-injection")]
     pub(crate) fault: Option<FaultPoint>,
 }
@@ -116,6 +118,7 @@ impl Ledger {
         let read = ReadDb::new(read_pool);
         Ok((
             Ledger {
+                crud: Crud::new(pool.clone()),
                 pool,
                 read: read.clone(),
                 #[cfg(feature = "fault-injection")]
@@ -130,6 +133,11 @@ impl Ledger {
         self.read.clone()
     }
 
+    /// The CRUD domain's typed writes (target-system-design §14.5, ADR-0008 §4).
+    pub fn crud(&self) -> &Crud {
+        &self.crud
+    }
+
     /// A ledger sharing this one's pools whose dispatches abort at `point` with
     /// `DispatchError::Injected(point)` (ADR-0004 item 4). Tests only.
     #[cfg(feature = "fault-injection")]
@@ -137,6 +145,7 @@ impl Ledger {
         Ledger {
             pool: self.pool.clone(),
             read: self.read.clone(),
+            crud: self.crud.clone(),
             fault: Some(point),
         }
     }

@@ -1,4 +1,3 @@
-#![cfg(any())]
 //! Agent versions as JCS hashes of resolved cards (target-system-design §4.1-§4.2;
 //! capabilities.md §1 "Version an agent"; ADR-0008 §4 `agent`).
 

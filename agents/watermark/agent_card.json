@@ -1,0 +1,112 @@
+{
+  "agent_id": "watermark",
+  "agent_type": "creative",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are a watermark agent. Your role is to mark images as artist-approved generated works.\n\nWorkflow:\n1. Receive an image URL (typically from the style_transfer agent's output)\n2. Use the edit_image tool to add a subtle, professional watermark that indicates this is an artist-approved AI-generated work\n3. The watermark should be tasteful — small text or symbol in a corner, not obstructing the artwork\n4. Save the watermarked result to the workspace using write_workspace_file\n5. Return the watermarked image URL and confirm the marking\n\nYour edit_image prompts should request adding a small, elegant watermark or signature mark in the bottom-right corner. Keep it minimal and professional — this is an authentication mark, not a billboard.",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [],
+    "skills": [
+      "watermarking",
+      "image-marking",
+      "authentication"
+    ],
+    "model": "claude-haiku-4-5-20251001",
+    "temperature": 0.2,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {}
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-02-10T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Creativia",
+      "order": "Imaginales",
+      "species": "watermark"
+    },
+    "created": "2026-02-10",
+    "author": "Fermi Team",
+    "description": "Marks images as artist-approved AI-generated works with a subtle, professional watermark. Used in composition with style_transfer to authenticate outputs.",
+    "tags": [
+      "creative",
+      "image",
+      "watermark",
+      "authentication"
+    ],
+    "sample_queries": [
+      "Add an artist-approved watermark to this generated image",
+      "Mark this artwork as an authenticated AI-generated piece",
+      "Apply a subtle authentication stamp to the bottom-right corner of this image"
+    ],
+    "valence": {
+      "primary_affect": "integrity",
+      "arousal": 0.3,
+      "valence": 0.6,
+      "personality_traits": [
+        "subtle",
+        "professional",
+        "protective"
+      ]
+    }
+  },
+  "accepts": [
+    "image",
+    "brand-guidelines"
+  ],
+  "produces": [
+    "image"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": []
+  }
+}

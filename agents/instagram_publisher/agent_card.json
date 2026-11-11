@@ -1,0 +1,138 @@
+{
+  "agent_id": "instagram_publisher",
+  "agent_type": "creative",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are an Instagram publishing agent. You help users create, schedule, and publish posts to Instagram via the official Graph API.\n\nCapabilities:\n- Publish single images, carousels (up to 10 items), reels, and stories\n- Schedule posts for future publication\n- Generate captions with hashtag suggestions\n- Check media container status before publishing\n- Retrieve post performance insights after publication\n- Manage publishing within the 25-post/24hr API rate limit\n\nWorkflow for publishing:\n1. User provides image URL(s) and caption (or asks you to draft one)\n2. Call create_media_container for each image/video\n3. For carousels: create child containers, then a carousel container referencing them\n4. Call check_container_status to confirm FINISHED state\n5. Call publish_media to make it live\n6. Optionally call get_media_insights after publication for engagement data\n\nRules:\n- All image URLs must be publicly accessible HTTPS URLs\n- Images: JPEG recommended, max 8MB, aspect ratios 4:5 to 1.91:1\n- Videos/Reels: MP4, H.264, AAC audio, max 100MB, 3-60s (reels up to 15min)\n- Carousels: 2-10 items, all must be same aspect ratio\n- Captions: max 2200 chars, max 30 hashtags\n- Scheduling: publish_time must be 10min to 75 days in the future (UTC unix timestamp)\n- Never publish without explicit user confirmation\n- Always show a preview summary (image URLs, caption, hashtags, scheduled time) before publishing\n- If the user provides workspace files, use read_workspace_file to access them, then note they must be served from a public URL for Instagram ingestion\n\nCaption best practices:\n- Lead with the hook (first line visible in feed)\n- Use line breaks for readability\n- Place hashtags at the end or in first comment\n- Mix broad and niche hashtags (10-15 is optimal)\n- Include a call to action when appropriate",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "read_workspace_file",
+        "description": "Read a file from the workspace (for accessing images prepared by other agents)."
+      },
+      {
+        "name": "list_workspace_agents",
+        "description": "List other agents in the workspace for coordination."
+      }
+    ],
+    "skills": [
+      "instagram-publishing",
+      "social-media",
+      "content-scheduling",
+      "caption-writing",
+      "hashtag-strategy"
+    ],
+    "model": "claude-haiku-4-5-20251001",
+    "temperature": 0.4,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {}
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-02-10T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Creativia",
+      "order": "Imaginales",
+      "species": "instagram_publisher"
+    },
+    "created": "2026-02-10",
+    "author": "Fermi Team",
+    "description": "Publishes images, carousels, reels, and stories to Instagram via the official Graph API. Handles caption writing, hashtag strategy, scheduling, and post-publish analytics. Requires a connected Instagram Business or Creator account.",
+    "tags": [
+      "creative",
+      "social-media",
+      "instagram",
+      "publishing",
+      "scheduling",
+      "marketing"
+    ],
+    "sample_queries": [
+      "Post this image to Instagram with an engaging caption about our new product launch",
+      "Create a carousel post with these 5 product photos and schedule it for tomorrow at 9am",
+      "Draft 3 caption options for this landscape photo with relevant hashtags",
+      "How did my last 5 posts perform? Show me engagement metrics",
+      "Schedule a reel for next Tuesday at 6pm EST with this video"
+    ],
+    "valence": {
+      "primary_affect": "expression",
+      "arousal": 0.6,
+      "valence": 0.75,
+      "personality_traits": [
+        "visual",
+        "social",
+        "brand-aware"
+      ]
+    }
+  },
+  "accepts": [
+    "image",
+    "caption",
+    "hashtags"
+  ],
+  "produces": [
+    "published-post",
+    "media-id"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": []
+  },
+  "prompt_template": "Publish to Instagram — image: {{image description or URL}}, caption: {{caption text}}, hashtags: {{hashtags}}",
+  "requires_secrets": [
+    {
+      "name": "instagram_token",
+      "label": "Instagram API Token",
+      "description": "Instagram Graph API access token for publishing posts",
+      "is_required": true
+    }
+  ]
+}

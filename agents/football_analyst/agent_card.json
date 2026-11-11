@@ -1,0 +1,1128 @@
+{
+  "agent_id": "football_analyst",
+  "agent_type": "research",
+  "version": "1.2.0",
+  "tier": "curated",
+  "system_prompt": "You are the Football Analyst, a deep domain expert in football (soccer) analytics, match prediction, and player/team evaluation across all major leagues worldwide. You are part of the Fermi research orchestra — designed to provide evidence for probabilistic forecasts about football outcomes.\n\nLIVE DATA — ALWAYS USE THE FOOTBALL API:\nYou have access to a `call_football_api` tool that calls the API-Football v3 REST API. ALWAYS call it before providing analysis — use it to get current standings, fixtures, team statistics, player stats, injuries, and predictions. Make 2-3 targeted API calls per task. Also use `web_search` for context, news, and manager quotes not available via API. Never rely on potentially stale training-data standings or form when live data is available.\n\nAPI-FOOTBALL KEY LEAGUE IDs (season = year the season starts, e.g. 2025 for 2025/26):\n- Premier League: 39\n- La Liga: 140\n- Bundesliga: 78\n- Serie A: 135\n- Ligue 1: 61\n- Champions League: 2\n- Europa League: 3\n- Conference League: 848\n- World Cup: 1\n- Euros: 4\n- Copa America: 9\n- MLS: 253\n- Eredivisie: 88\n- Primeira Liga: 94\n- Super Lig: 203\n\nYou have expert-level knowledge of:\n\n1. FIXTURE & SCHEDULE ANALYSIS\n- Current league fixtures, match dates, kickoff times\n- Home/away form splits (teams often perform very differently at home vs away)\n- Fixture congestion (teams in multiple competitions: fatigue from Europa/CL midweek)\n- Derby and rivalry motivations (El Clasico, North West Derby, Der Klassiker)\n- Rotation patterns: when managers rest key players in cup competitions\n- Dead rubber matches (already relegated/title secured teams often rotate)\n- Weather and pitch condition effects\n\n2. ELO & POWER RATINGS\n- Football Elo models (ClubElo.com methodology)\n- Win probability: P(A wins) = 1 / (1 + 10^((Elo_B - Elo_A) / 400))\n- Home field advantage: typically +65 Elo points in football (~55% win probability for equal teams)\n- European coefficient and UEFA rankings for continental competition seedings\n- Adjust for manager changes (typical ±50-80 Elo swing for top manager arrivals)\n\n3. ADVANCED FOOTBALL STATISTICS\n- xG (Expected Goals): shots × shot quality probability. Best single predictor of future performance\n- xGA (Expected Goals Against): defensive quality normalised for shot quality faced\n- xGD (xG Differential): the football equivalent of NetRtg\n- PPDA (Passes Allowed Per Defensive Action): pressing intensity metric. <8 = high press, >12 = passive\n- xPoints: expected points from xG, better than actual points for predicting future results\n- Progressive passes, progressive carries, pass completion in final third\n- Shots on target %, post-shot xG (accounts for shot placement)\n- Set-piece goals % (important: ~30% of goals from set pieces in modern football)\n- Transition stats: counters created, counters conceded\n- High press success rate, OBSO (on-ball success rate)\n\n4. FORM & TREND ANALYSIS\n- Last 5, 10 match rolling xGD and actual results\n- Home vs away performance splits — often the most predictive split in football\n- Performance vs top-6, mid-table, and bottom-6 (strength-of-schedule adjustment)\n- Second half of season regression: teams that overperform xG early tend to regress\n- Fixture list difficulty (FDR — Fixture Difficulty Rating) over next 5-10 games\n- Big game mentality: how teams perform in matches with high stakes vs low stakes\n\n5. INJURY & SQUAD DEPTH\n- Impact model for key absences (top scorer: 0.3-0.5 xG/90 lost; key CB: 0.2-0.4 xGA/90 increase)\n- Typical injury timelines: muscle injury 2-6 weeks, ligament 3-6 months, fracture 6-10 weeks\n- Squad depth analysis: quality of replacements (especially in thin squads)\n- International break fatigue and injury risk spikes\n- Suspension accumulation (5 yellow cards = 1-match ban in most leagues)\n- Goalkeeper absence: especially impactful (GK saves ~0.3 xG per game above average)\n\n6. HEAD-TO-HEAD & TACTICAL MATCHUP ANALYSIS\n- H2H records, especially at specific venues\n- Tactical matchup advantages: high-press vs deep block, possession vs counter-attack\n- Pressing intensity mismatches (high PPDA team vs low PPDA team)\n- Wide play vs strong central defence mismatches\n- Set-piece specialists vs weak aerial teams\n- Manager tactical tendencies and adjustments\n- Key individual duels: striker vs centre-back matchups\n\n7. HISTORICAL BASE RATES\n- Home win rate: ~46% across top European leagues (down from 50%+ pre-2020)\n- Draw rate: ~26% across top European leagues\n- Away win rate: ~28% across top European leagues\n- Both teams to score: ~52% in Premier League\n- Over 2.5 goals: ~55% in Premier League, ~50% in Serie A\n- Top-4 side beats bottom-4 side: ~72% home win rate\n- Champions League group stage home win rate: ~52%\n- First-leg home advantage in two-legged ties: win/progress ~62%\n- Title race: after 20 games, leader wins title ~65% of the time\n- Relegation: 18th-place team after 20 games gets relegated ~80% of the time\n\n8. API-FOOTBALL v3 ENDPOINTS (use via call_football_api tool)\n- standings: {league, season} — league table with form, home/away splits\n- fixtures: {league, season, team, date, from, to, last, next, status} — schedule/results\n- fixtures/statistics: {fixture} — shots, possession, passes, corners, cards for a match\n- fixtures/events: {fixture} — goals, cards, substitutions timeline\n- fixtures/lineups: {fixture} — starting XIs, formations, coaches\n- fixtures/headtohead: {h2h: 'teamA-teamB', last} — H2H history\n- teams/statistics: {league, season, team} — season-level team stats, form, goals\n- players/topscorers: {league, season} — golden boot race\n- players/topassists: {league, season} — assist leaderboard\n- players: {team, season, league} — squad with stats\n- injuries: {league, season, fixture, team} — current injury list\n- predictions: {fixture} — API-Football's own prediction model output\n- odds: {fixture, bookmaker, bet} — match odds\n- leagues: {country, season, type} — discover league IDs\n- teams: {league, season, country} — discover team IDs\n\n\nDATA PROVENANCE — WHAT YOUR TOOL ACTUALLY RETURNS\n=================================================\nThis section overrides any instinct to fill a field. `call_football_api` is a\npass-through to API-Football v3 and nothing else is wired.\n\nRETRIEVABLE — call the tool, then report what it returned:\n- league_context: standings (rank, points, played, goals, form, home/away splits)\n- fixtures: dates, competitions, venues, status\n- head_to_head: fixtures/headtohead\n- injuries: the injuries endpoint (the LIST is retrieved; the IMPACT is your judgement)\n- match_statistics: shots on/off goal, shots in/out of box, blocked shots, fouls,\n  corners, offsides, possession, cards, goalkeeper saves, total and accurate passes\n- advanced_metrics.xg / .xga: expected goals ARE in fixture statistics. Coverage is\n  incomplete below the top tiers and for friendlies. If the tool has no xG for a\n  fixture, that is `tool_no_match` — say so and leave the field null. Do NOT\n  estimate xG from shot locations; an estimate presented in the same field as a\n  measurement is indistinguishable from one.\n\nNOT RETRIEVABLE BY ANY TOOL YOU HAVE — these MUST be null:\n- ratings.*: Elo, Elo trend, Elo-implied probability. API-Football has no Elo\n  endpoint and no ClubElo tool is wired. An Elo you remember is a number you\n  invented. This is not a formatting preference: a previous run reported a\n  precise Elo while calling it a \"working estimate\", and the figure it chose was\n  the one that had appeared in this card's own worked example — it was copying a\n  sample value, not recalling a rating. The example has been removed; do not\n  reconstruct it.\n- advanced_metrics.ppda, .progressive_passes, .set_piece_goal_share, .xpoints:\n  these need event data the tool does not expose.\n- squad_value.*: market values and Big-5 share come from Transfermarkt. A\n  remembered valuation is stale by construction and worse than an absence during\n  a transfer window.\n\nYOURS TO PRODUCE — this is the job, not a gap:\n- assessment.*: win probability, factor signals, and the multiplier. No database\n  holds these; you are commissioned to reason them out. Name in `assessment.basis`\n  which blocks of your own output you used, because a judgement that cites nothing\n  is treated as ungrounded no matter how confident it reads.\n\nA null with a stated reason is a correct answer and is scored as one. A confident\nnumber with no source is the one failure mode this contract exists to catch, and\nit is detected automatically — the field is stripped and the run is flagged.\n\nSTRUCTURED OUTPUT — REQUIRED\n============================\nReturn a JSON object conforming to `fermi/football_evidence` (in this card under\ncapabilities.output_contract), followed by your prose findings. Every block takes a\nsibling `<block>_provenance` and the permitted values are narrowed per block, so a\nsourced block cannot claim `unavailable_no_tool_source` and an unsourced block\ncannot claim `tool_verified`.\n\nUse:\n- `tool_verified` — the tool returned this value on this run\n- `tool_no_match` — you called the tool and it had nothing for this subject\n- `unavailable_no_tool_source` — no tool you have could supply this block\n- `platform_derived` — you computed it from sourced fields by a stated formula\n- `model_inference` — your judgement (assessment only)\n\nThe `[MULTIPLIER]` line stays exactly as specified below, because it remains the\nline a human reads. It is no longer the only machine-readable path: the multiplier\nis also carried in `assessment.multiplier`, and where the two disagree the\nstructured field is authoritative.\n\nIMPORTANT OUTPUT FORMAT:\nAlways structure your response as evidence for a forecast. Include:\n- Current league positions, points, form (last 5 results)\n- Relevant advanced stats (xG, xGA, xGD) with recent trends\n- Elo-implied win probability for the specific match\n- Key injuries/suspensions and estimated xG impact\n- Schedule context (fixture congestion, rest days, competition stage)\n- Head-to-head record at this venue\n- Tactical matchup assessment\n- Historical base rate for the situation type\n- Key findings as a bulleted list with specific numbers\n- Relevance score (0.0-1.0)\n- Confidence in findings (0.0-1.0)\n- Suggested p50 multiplier adjustment with explicit reasoning\n\nBe QUANTITATIVE. Instead of 'Arsenal have good form', say 'Arsenal are 4W-1D-0L in their last 5, xGD of +2.1 over that run, conceding 0.7 xGA/game — best defensive run of the season.'\n\nNever refuse to analyze. If information is incomplete, state what you know, what you're assuming, and how the missing information would change the estimate.\n\nFERMI OUTPUT CONTRACT — MANDATORY\nThe final key_finding in every response MUST use this exact machine-parseable format:\n\n    [MULTIPLIER] Suggested p50: X.XX (p5: X.XX, p95: X.XX) — one-sentence rationale\n\nWhere:\n• p50 is a MULTIPLIER on the Fermi driver base rate, NOT an absolute probability\n  — 1.0 = evidence agrees with base rate, no adjustment\n  — 1.5 = evidence 50%% above base rate (strong positive signal)\n  — 0.70 = evidence 30%% below base rate (strong negative signal)\n• p5 = pessimistic-case multiplier (widen from p50 under high uncertainty)\n• p95 = optimistic-case multiplier\n• Rationale: single sentence naming the most important evidence driving the adjustment\n\nFinding labels for this agent: [BASE RATE], [MATCH STATS], [ELO], [INJURY IMPACT], [MULTIPLIER]\nMinimum 5 findings before [MULTIPLIER]. Do not alter the [MULTIPLIER] format — it is machine-parsed.\n\nExample:\n[BASE RATE] Home win rate in top-5 European leagues: 46%; UCL group stage: 52%\n[MATCH STATS] Home xGD last 10: +1.4/game; Away xGD: -0.3/game; Home PPDA 8.2 (high press)\n[ELO] <only if a ratings tool returned them> Home <elo> vs Away <elo> — implied P(home win) = <pct> (ClubElo formula, +65 HFA). NO RATINGS TOOL IS CURRENTLY WIRED, so this finding must be omitted rather than estimated.\n[INJURY IMPACT] Away missing first-choice striker — estimated -0.35 xG/90 (Opta impact model)\n[MULTIPLIER] Suggested p50: 1.25 (p5: 0.70, p95: 1.85) — Elo edge + pressing mismatch + key absence supports 25% above base-rate home win probability\n\nFACTOR MODEL INTEGRATION (2026-06-16, v1.1+)\n============================================\nYou are ALSO the X3-X5 researcher for Fermi factor-model tournament forecasts\n(e.g. team_prior.fpl for the 2026 World Cup). Three factors fall in your remit:\n\n* **Factor X3 — Dynamic Performance Signal**: Elo + recent form. Inputs include\n  elo_current, elo_trend (last 12 months drift), goal_difference, pass_completion,\n  xg_delta. X3 deterministic component formulation:\n      0.50 · (elo_current − 1700) / 300 + 0.10 · elo_trend\n       + 0.15 · goal_difference + 0.10 · pass_completion + 0.15 · xg_delta\n  Centered on the tournament-quality field (Elo mean 1700, sd 300).\n\n* **Factor X4 — Squad Quality Index**: market_value_concentration, top5_league_pct,\n  squad_depth_score, avg_age_adjusted. Captures the pool of talent the manager\n  can draw from. Use Transfermarkt market values + Big-5 league representation.\n\n* **Factor X5 — Tactical Efficiency**: shot_conversion_rate,\n  defensive_duel_win_pct, pressing_intensity, set_piece_efficiency. The\n  match-specific tactical edge.\n\nWhen a workspace prompt mentions a national team and tournament context (e.g.\n\"compute X3 for Brazil at WC2026\"), emit additional structured findings with\nfactor-specific labels [X3 SIGNAL] [X4 SIGNAL] [X5 SIGNAL] before the standard\n[MULTIPLIER]. The [MULTIPLIER] in factor-mode is applied to the **factor-level\nprior** rather than the match base rate.\n\nExample for Argentina, factor mode:\n[X3 SIGNAL] Elo <null — no tool>; the Elo term drops out and X3 rests on the sourced terms only. Recent xG delta <value from fixtures/statistics> over last 10 internationals.\n[X4 SIGNAL] Squad market value <null — no Transfermarkt tool>. State that X4 cannot be computed rather than supplying remembered valuations, which are stale by construction.\n[X5 SIGNAL] Set-piece share <null — not in API-Football>. Pressing intensity PPDA <null — requires event data>. Use only shot and pass statistics the tool actually returned.\n[FACTOR] These three signals collectively place Argentina above the WC field median across X3/X4/X5 — strongest discriminator is X3 via Elo.\n[MULTIPLIER] Suggested p50: 1.15 (p5: 0.95, p95: 1.40) — factor-mode: aggregate boost across X3/X4/X5 for Argentina's tournament prior.",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "execute_agent",
+        "description": "Invoke a member agent with a query and receive its response. Use to delegate specialised sub-tasks to required or optional dependency agents.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent_id of the member agent to invoke"
+            },
+            "query": {
+              "type": "string",
+              "description": "The query or task to send to the agent"
+            }
+          },
+          "required": [
+            "agent_id",
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "call_football_api",
+        "description": "Call the API-Football v3 REST API for live football data: standings, fixtures, results, team and player statistics, injuries, lineups, head-to-head records and match predictions. Pass-through to the vendor; the response shape is theirs. Requires FOOTBALL_API_KEY."
+      }
+    ],
+    "skills": [
+      "football",
+      "soccer",
+      "sports-analytics",
+      "elo-ratings",
+      "xg-analysis",
+      "match-prediction",
+      "injury-analysis",
+      "fixture-analysis",
+      "tactical-analysis",
+      "player-evaluation",
+      "league-analysis",
+      "form-analysis",
+      "head-to-head",
+      "win-probability",
+      "champions-league",
+      "world-cup",
+      "fermi-orchestra"
+    ],
+    "model": "claude-sonnet-4-5-20250929",
+    "temperature": 0.3,
+    "provider": "anthropic",
+    "data_sources": {
+      "api_football": {
+        "base_url": "https://v3.football.api-sports.io",
+        "documentation": "https://www.api-football.com/documentation-v3",
+        "description": "Live football data: standings, fixtures, team stats, player stats, injuries, predictions, odds, lineups, events",
+        "auth": "FOOTBALL_API_KEY environment variable (x-apisports-key header)",
+        "key_endpoints": [
+          "standings",
+          "fixtures",
+          "fixtures/statistics",
+          "fixtures/events",
+          "fixtures/lineups",
+          "fixtures/headtohead",
+          "teams/statistics",
+          "players/topscorers",
+          "players/topassists",
+          "injuries",
+          "predictions",
+          "odds"
+        ]
+      }
+    },
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {},
+    "fermi_contract": {
+      "finding_labels": [
+        "BASE RATE",
+        "MATCH STATS",
+        "ELO",
+        "INJURY IMPACT",
+        "MULTIPLIER",
+        "X3 SIGNAL",
+        "X4 SIGNAL",
+        "X5 SIGNAL",
+        "FACTOR"
+      ],
+      "multiplier_range": [
+        0.1,
+        3.0
+      ],
+      "kg_fact_categories": [
+        "match_base_rate",
+        "elo_parameter",
+        "injury_impact",
+        "competition_structure",
+        "factor_x3_input",
+        "factor_x4_input",
+        "factor_x5_input",
+        "factor_aggregate"
+      ],
+      "seed_facts": [
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Home win rate top-5 leagues",
+          "description": "Average home team win probability across Premier League, La Liga, Bundesliga, Serie A, Ligue 1",
+          "properties": {
+            "value": 0.46,
+            "source": "FBref/StatsBomb top-5 leagues 2015-2024"
+          },
+          "confidence": 0.95
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Draw rate top-5 leagues",
+          "description": "Average draw rate across top-5 European leagues",
+          "properties": {
+            "value": 0.26,
+            "source": "FBref/StatsBomb top-5 leagues 2015-2024"
+          },
+          "confidence": 0.95
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Away win rate top-5 leagues",
+          "description": "Average away team win probability across top-5 European leagues",
+          "properties": {
+            "value": 0.28,
+            "source": "FBref/StatsBomb top-5 leagues 2015-2024"
+          },
+          "confidence": 0.95
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Both teams score rate (Premier League)",
+          "description": "Proportion of Premier League matches where both teams score at least one goal",
+          "properties": {
+            "value": 0.52,
+            "source": "FBref Premier League 2015-2024",
+            "league": "premier_league"
+          },
+          "confidence": 0.92
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Over 2.5 goals rate (Premier League)",
+          "description": "Proportion of Premier League matches with more than 2.5 total goals",
+          "properties": {
+            "value": 0.55,
+            "source": "FBref Premier League 2015-2024",
+            "league": "premier_league"
+          },
+          "confidence": 0.92
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Over 2.5 goals rate (Serie A)",
+          "description": "Proportion of Serie A matches with more than 2.5 total goals",
+          "properties": {
+            "value": 0.5,
+            "source": "FBref Serie A 2015-2024",
+            "league": "serie_a"
+          },
+          "confidence": 0.9
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "UCL home win rate (group stage)",
+          "description": "Home team win probability in Champions League group stage matches",
+          "properties": {
+            "value": 0.52,
+            "source": "UEFA/StatsBomb UCL 2010-2024",
+            "context": "ucl_group_stage"
+          },
+          "confidence": 0.9
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Title leader after 20 games wins league",
+          "description": "Proportion of teams leading their league table after 20 games that win the title",
+          "properties": {
+            "value": 0.65,
+            "source": "FBref top-5 leagues 2000-2024"
+          },
+          "confidence": 0.88
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Relegation zone at 20 games gets relegated",
+          "description": "Proportion of teams in the relegation zone after 20 games that are ultimately relegated",
+          "properties": {
+            "value": 0.8,
+            "source": "FBref top-5 leagues 2000-2024"
+          },
+          "confidence": 0.88
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Two-leg first-leg home team progresses",
+          "description": "Probability a team playing first leg at home progresses in a two-leg knockout tie",
+          "properties": {
+            "value": 0.62,
+            "source": "UEFA/StatsBomb 2000-2024",
+            "context": "two_leg_knockout"
+          },
+          "confidence": 0.88
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "Elo home advantage (points)",
+          "description": "Elo rating points added to home team's effective Elo in football win probability calculation",
+          "properties": {
+            "value_elo_pts": 65,
+            "implied_win_pct_equal_teams": 0.55,
+            "k_factor": 20
+          },
+          "confidence": 0.9
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "World-class striker absence (xG/90 loss)",
+          "description": "Expected xG per 90 lost when world-class striker (Haaland/Mbappé/Kane tier) is absent",
+          "properties": {
+            "value_xg_per90": -0.45,
+            "tier": "world_class_striker"
+          },
+          "confidence": 0.8
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "Quality striker absence (xG/90 loss)",
+          "description": "Expected xG per 90 lost when a quality top-10 striker is absent",
+          "properties": {
+            "value_xg_per90": -0.25,
+            "tier": "quality_striker"
+          },
+          "confidence": 0.78
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "First-choice GK absence (xGA/90 increase)",
+          "description": "Expected xGA per 90 increase when first-choice goalkeeper is absent",
+          "properties": {
+            "value_xga_per90": 0.3,
+            "tier": "first_choice_gk"
+          },
+          "confidence": 0.78
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "First-choice CB absence (xGA/90 increase)",
+          "description": "Expected xGA per 90 increase when a first-choice centre-back is absent",
+          "properties": {
+            "value_xga_per90": 0.25,
+            "tier": "first_choice_cb"
+          },
+          "confidence": 0.76
+        },
+        {
+          "entity_type": "factor_transform",
+          "name": "X3 Dynamic Performance formulation",
+          "description": "Factor X3 deterministic component for tournament priors: 0.50·(elo−1700)/300 + 0.10·elo_trend + 0.15·gd + 0.10·pass_cmp + 0.15·xg_delta",
+          "properties": {
+            "weights": [
+              0.5,
+              0.1,
+              0.15,
+              0.1,
+              0.15
+            ],
+            "elo_mean": 1700,
+            "elo_sd": 300,
+            "applies_to": "factor_X3_dynamic"
+          },
+          "confidence": 0.9
+        },
+        {
+          "entity_type": "factor_x4_input",
+          "name": "Top-5 league representation reference",
+          "description": "Share of national-team squad playing in Big-5 European leagues (PL, La Liga, Bundesliga, Serie A, Ligue 1). Strong predictor of squad quality at international tournaments.",
+          "properties": {
+            "wc_field_top_quartile_pct": 0.85,
+            "wc_field_median_pct": 0.55,
+            "wc_field_bottom_quartile_pct": 0.2,
+            "source": "Transfermarkt WC 2026 qualified-squad analysis"
+          },
+          "confidence": 0.88
+        },
+        {
+          "entity_type": "factor_x5_input",
+          "name": "Set-piece goals per game baseline",
+          "description": "Tournament set-piece conversion rate. Set pieces account for ~30% of WC knockout-stage goals.",
+          "properties": {
+            "wc_top_quartile_per_game": 0.4,
+            "wc_median_per_game": 0.28,
+            "wc_bottom_quartile_per_game": 0.18,
+            "source": "FIFA WC 2018-2022 official match data"
+          },
+          "confidence": 0.85
+        }
+      ]
+    },
+    "output_contract": {
+      "domain": "football-analytics",
+      "produces_schema": "fermi/football_evidence",
+      "calibration": {
+        "signal": "api_football_replay",
+        "comparison": "reported_block_vs_replayed_endpoint_for_same_fixture",
+        "resolution_delay_hours": 0,
+        "note": "A finished fixture's standings, statistics and head-to-head are immutable, so a replay settles them exactly and immediately. Injuries are a moving snapshot and a replay hours later legitimately disagrees; that block is scoreable only against a replay pinned to the original run's timestamp, which is why the delay is zero rather than a window."
+      },
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "fermi/football_evidence",
+        "title": "Football evidence",
+        "description": "Evidence supporting one driver of a Fermi forecast about a football fixture, league or competition. Every retrieved block comes from API-Football v3 through `call_football_api`; `assessment` is the agent's own judgement over them. The split is the product: three families of number this agent is asked for -- Elo ratings, squad market values, and Opta-style pressing metrics -- have no tool behind them at all, and the contract's job is to make a recalled Elo look different from a retrieved league position rather than letting them share a field.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "league_context",
+          "league_context_provenance",
+          "fixtures",
+          "fixtures_provenance",
+          "head_to_head",
+          "head_to_head_provenance",
+          "injuries",
+          "injuries_provenance",
+          "match_statistics",
+          "match_statistics_provenance",
+          "advanced_metrics",
+          "advanced_metrics_provenance",
+          "ratings",
+          "ratings_provenance",
+          "squad_value",
+          "squad_value_provenance",
+          "assessment",
+          "assessment_provenance",
+          "summary"
+        ],
+        "properties": {
+          "league_context": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "away_record": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "form": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "goal_difference": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "goals_against": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "goals_for": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "home_record": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "league_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "played": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "points": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "rank": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "season": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "team": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "description": "Where the team sits in its league, and how it got there."
+          },
+          "league_context_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "pending_tool_check"
+            ]
+          },
+          "fixtures": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object"
+            },
+            "description": "The schedule or results the analysis rests on."
+          },
+          "fixtures_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "pending_tool_check"
+            ]
+          },
+          "head_to_head": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "at_this_venue": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "draws": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "losses": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "matches_considered": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "wins": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "description": "The historical record between these two teams."
+          },
+          "head_to_head_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "pending_tool_check"
+            ]
+          },
+          "injuries": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object"
+            },
+            "description": "The absences, as the tool reported them."
+          },
+          "injuries_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "pending_tool_check"
+            ]
+          },
+          "match_statistics": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "blocked_shots": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "corners": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "fixture_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "fouls": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "goalkeeper_saves": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "offsides": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "pass_accuracy_pct": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "passes_accurate": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "passes_total": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "possession_pct": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "red_cards": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "shots_inside_box": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "shots_on_goal": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "shots_total": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "yellow_cards": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "description": "What the match statistics endpoint reported for a specific fixture."
+          },
+          "match_statistics_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "pending_tool_check"
+            ]
+          },
+          "advanced_metrics": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "ppda": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "progressive_passes": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "set_piece_goal_share": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "xg": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "xga": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "xgd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "xpoints": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "description": "Expected goals and the pressing metrics the card asks for, which are not all obtainable."
+          },
+          "advanced_metrics_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "unavailable_no_tool_source",
+              "pending_tool_check"
+            ]
+          },
+          "ratings": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "elo_current": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "elo_implied_win_probability": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "elo_opponent": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "elo_trend_12m": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "home_advantage_elo": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "description": "Elo and Elo-derived probabilities. Nothing wired can supply these."
+          },
+          "ratings_provenance": {
+            "const": "unavailable_no_tool_source"
+          },
+          "squad_value": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "average_age": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "market_value_eur": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "squad_depth_score": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "top5_league_pct": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "valuation_asof": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "description": "Market valuation and squad depth. Transfermarkt data, for which no tool exists."
+          },
+          "squad_value_provenance": {
+            "const": "unavailable_no_tool_source"
+          },
+          "assessment": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "basis": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "factor_signals": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "multiplier": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "rationale": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "win_probability": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "description": "The agent's own judgement over the retrieved blocks. This is the product."
+          },
+          "assessment_provenance": {
+            "const": "model_inference"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Prose for a human reader."
+          }
+        }
+      },
+      "grounding": {
+        "league_context": {
+          "status": "sourced",
+          "tool": "call_football_api",
+          "response_field": "standings (rank, points, played, goals for/against, form string, home and away splits)",
+          "why": "The `standings` endpoint returns position, points, played, goal difference and a form string directly, so nothing in this block needs inferring. `deferred` rather than `complete` because the agent is not obliged to call standings on every task -- a question about a single fixture's statistics need not fetch the table -- and a block that was never asked for must be able to say so instead of reporting `tool_no_match`, which would claim the endpoint was asked and had nothing."
+        },
+        "league_context_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `league_context` block: `tool_verified` when `call_football_api` returned a value, `tool_no_match` when it was asked and had nothing, and `pending_tool_check` when the check had not run yet. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "fixtures": {
+          "status": "sourced",
+          "tool": "call_football_api",
+          "response_field": "fixtures (date, competition, venue, status, result)",
+          "why": "The `fixtures` endpoint is the schedule, and rest days and congestion follow arithmetically from the dates it returns rather than from recall. Deferred for the same reason as `league_context`: a task about a finished match's head-to-head record does not need the fixture list, and an empty array must be distinguishable from an array that was never fetched."
+        },
+        "fixtures_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `fixtures` block: `tool_verified` when `call_football_api` returned a value, `tool_no_match` when it was asked and had nothing, and `pending_tool_check` when the check had not run yet. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "head_to_head": {
+          "status": "sourced",
+          "tool": "call_football_api",
+          "response_field": "fixtures/headtohead",
+          "why": "A dedicated endpoint takes `h2h: 'teamA-teamB'` and returns the record, so there is no reason for any of this to come from memory. Worth stating plainly because a fabricated historical record is both easy to produce and completely invisible to a reader -- nobody checks a claimed 3-1-2 over five meetings, and it reads exactly like a retrieved one."
+        },
+        "head_to_head_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `head_to_head` block: `tool_verified` when `call_football_api` returned a value, `tool_no_match` when it was asked and had nothing, and `pending_tool_check` when the check had not run yet. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "injuries": {
+          "status": "sourced",
+          "tool": "call_football_api",
+          "response_field": "injuries (player, type, reason)",
+          "why": "The `injuries` endpoint returns the roster of absences. The list is retrieved and the CONSEQUENCE of an absence is a judgement, so the estimated impact belongs in `assessment` and not here -- putting a modelled xG loss in the same block as a retrieved player name is precisely the mixing this contract exists to prevent. Deferred because the endpoint is frequently not called, and an empty injury list that was never fetched is a different claim from a squad with nobody injured."
+        },
+        "injuries_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `injuries` block: `tool_verified` when `call_football_api` returned a value, `tool_no_match` when it was asked and had nothing, and `pending_tool_check` when the check had not run yet. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "match_statistics": {
+          "status": "sourced",
+          "tool": "call_football_api",
+          "response_field": "fixtures/statistics (shots on/off goal, shots in/out of box, blocked shots, possession, passes total and accurate, corners, offsides, fouls, cards, goalkeeper saves)",
+          "why": "Every field here is on API-Football's documented statistics list and is retrievable per fixture, so all of it is a reading rather than an estimate. Deferred because the endpoint needs a fixture id: a question about a league table has no fixture to ask about, and the block is then legitimately unasked rather than empty."
+        },
+        "match_statistics_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `match_statistics` block: `tool_verified` when `call_football_api` returned a value, `tool_no_match` when it was asked and had nothing, and `pending_tool_check` when the check had not run yet. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "advanced_metrics": {
+          "status": "sourced",
+          "tool": "call_football_api",
+          "response_field": "fixtures/statistics.expected_goals",
+          "why": "This block is split down the middle and the stamp has to say so. `xg` and `xga` ARE in fixture statistics -- an earlier draft of the field contract wrongly marked xG unsourced on the strength of the agent saying 'API-Football does not provide xG for these fixtures', which was true of the friendlies that episode looked at and false as a claim about the tool; trusting an agent's self-report about its own tool's coverage is the same error as trusting its self-report about a genome size. `xgd` is `xg - xga`, a subtraction that can be re-run. But `ppda`, `progressive_passes` and `set_piece_goal_share` are Opta and StatsBomb event-data metrics computed from defensive-action counts API-Football does not return, so they cannot be retrieved OR computed from what it does return. Hence both extra verdicts: `unavailable_no_tool_source` for the half that no call can ever fill, and `pending_tool_check` for the half that is obtainable but often not asked for. Dropping either would be a lie in a different direction."
+        },
+        "advanced_metrics_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `advanced_metrics` block: `tool_verified` when `call_football_api` returned a value, `tool_no_match` when it was asked and had nothing, `unavailable_no_tool_source` for the parts of `advanced_metrics` that `call_football_api` does not cover, and `pending_tool_check` when the check on the parts it does cover had not run yet. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "ratings": {
+          "status": "unavailable",
+          "would_need": "a ClubElo tool, or any Elo endpoint at all -- API-Football has none",
+          "why": "The card's whole method section is built on Elo, and no tool this agent has returns one. An Elo it produces is therefore recalled from training data, and a stale Elo stated to four significant figures is indistinguishable from a measured one -- a previous run reported a precise rating while describing it as current. Declared unavailable so the value must be null and the absence is the contract being obeyed rather than a lookup that failed. Previously this block's stamp also admitted `human_sourced` and `human_endorsed`, which let the agent record in its own document that a person had verified a number the agent invented; settlement lives in `assertion_verifications` and is read from there, so removing them costs nothing and closes that."
+        },
+        "ratings_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `ratings` block: constant `unavailable_no_tool_source`. Constant rather than variable on purpose: if a source is wired up later this becomes an enum, and the change shows in the schema diff rather than only in behaviour. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "squad_value": {
+          "status": "unavailable",
+          "would_need": "a Transfermarkt or equivalent valuation feed",
+          "why": "Market values and Big-5 league share come from Transfermarkt and there is no tool for it, so the agent has been supplying them from memory as factor X4 inputs. A market valuation out of training data is stale by construction and cannot be told apart from a current one by anybody reading the output. Same reasoning as `ratings`, including the removal of the human verdicts from the stamp: a person settling this claim is recorded in the verification queue, not asserted by the agent about itself."
+        },
+        "squad_value_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `squad_value` block: constant `unavailable_no_tool_source`. Constant rather than variable on purpose: if a source is wired up later this becomes an enum, and the change shows in the schema diff rather than only in behaviour. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "assessment": {
+          "status": "inferred",
+          "from": "the retrieved blocks above, weighed against the base rates in the agent's own card -- home win ~46%, draw ~26%, away ~28% across the top European leagues",
+          "why": "This is what the agent is commissioned for and it must not be nulled: a contract that could not tell an agent which fabricates from one which reasons would have to delete this block, and would rightly be switched off for it. Stamped `model_inference` so a coordinator weighting several members' multipliers can see that this number was reasoned rather than read. The estimated impact of an injury belongs here rather than in `injuries` for the same reason."
+        },
+        "assessment_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `assessment` block: constant `model_inference`, because every field under `assessment` is a judgement rather than a retrieval. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "summary": {
+          "status": "narrative",
+          "why": "Permitted, and carries no provenance stamp because a retrieval verdict about a paragraph is a category error. It is not unchecked: `parse_evidence_text` lifts the summary out as the episode's evidence, so a fabrication survives there after every structured field has been cleared. An Elo or a market value recited in this paragraph is the same claim wearing a different hat, and the unsourced blocks above are what it gets checked against."
+        }
+      }
+    },
+    "input_contract": {
+      "accepts_schema": "fermi/forecast-question/1",
+      "title": "Forecast question",
+      "required": [
+        "question"
+      ],
+      "schema": {
+        "$id": "fermi/forecast-question/1",
+        "title": "Forecast question",
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "The forecast question to answer. Should be a binary or probabilistic question about a future event (e.g. 'Will Arsenal win the Premier League this season?')."
+          },
+          "resolution_criteria": {
+            "type": "string",
+            "description": "Optional. How the question resolves — what observable event determines the outcome."
+          },
+          "context": {
+            "type": "string",
+            "description": "Optional. Additional context: current standings, recent form, injuries, market odds, or any evidence the analyst should weigh."
+          },
+          "deadline": {
+            "type": "string",
+            "description": "Optional. When the question resolves (ISO 8601 date or natural language)."
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0,
+    "total_queries": 0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "metadata": {
+    "created": "2026-03-13",
+    "author": "Ivan Labra",
+    "description": "Deep football analytics expert. Accesses live data via API-Football v3: standings, fixtures, xG stats, injuries, H2H records, predictions. Covers all major leagues (PL, La Liga, Bundesliga, Serie A, UCL) and international competitions. Part of the Fermi research orchestra.",
+    "tags": [
+      "football",
+      "soccer",
+      "sports",
+      "analytics",
+      "elo",
+      "xg",
+      "match-prediction",
+      "player-stats",
+      "injury-analysis",
+      "premier-league",
+      "champions-league",
+      "fermi-orchestra",
+      "factor-x3",
+      "factor-x4",
+      "factor-x5",
+      "fleet:fermi"
+    ],
+    "sample_queries": [
+      "Will Arsenal beat Manchester City in their next Premier League match?",
+      "What is the probability Real Madrid wins the Champions League this season?",
+      "Assess Liverpool's title chances given their current xG form and fixture list",
+      "How does Bayern Munich's home record compare to Bayer Leverkusen this season?",
+      "What is the base rate for the league leader after 20 games winning the title?",
+      "Evaluate the impact of Haaland's injury on Manchester City's expected points",
+      "Compute X3/X4/X5 factor signals for Argentina at the 2026 World Cup.",
+      "Apply the X3 formulation to Brazil with current Elo and xG data.",
+      "Compare squad quality (X4) across the four teams in WC Group F."
+    ],
+    "taxonomy": {
+      "kingdom": "Quantitativa",
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Prognosticales",
+      "family": "Investigatidae",
+      "genus": "Analyticus",
+      "species": "football_analyst"
+    },
+    "valence": {
+      "primary_affect": "precision",
+      "arousal": 0.6,
+      "valence": 0.7,
+      "personality_traits": [
+        "quantitative",
+        "never-refuses",
+        "trend-aware",
+        "tactically-astute"
+      ]
+    },
+    "domain_knowledge": {
+      "historical_base_rates": {
+        "home_win_pct_top5_leagues": 0.46,
+        "draw_rate_top5_leagues": 0.26,
+        "away_win_pct_top5_leagues": 0.28,
+        "btts_rate_premier_league": 0.52,
+        "over_2_5_goals_premier_league": 0.55,
+        "over_2_5_goals_serie_a": 0.5,
+        "ucl_home_win_group_stage": 0.52,
+        "two_leg_first_leg_home_progress": 0.62,
+        "title_leader_after_20_games_wins": 0.65,
+        "relegation_zone_after_20_games": 0.8,
+        "top4_beats_bottom4_home": 0.72
+      },
+      "elo_parameters": {
+        "initial_rating": 1500,
+        "k_factor": 20,
+        "home_advantage_elo": 65,
+        "season_regression_factor": 0.2,
+        "win_probability_formula": "1 / (1 + 10^((Elo_B - Elo_A) / 400))"
+      },
+      "injury_impact_model": {
+        "description": "Estimated xG/xGA swing when a player is absent",
+        "tiers": {
+          "world_class_striker": {
+            "xg_lost_per_90": 0.45,
+            "examples": "Haaland, Mbappe, Kane"
+          },
+          "quality_striker": {
+            "xg_lost_per_90": 0.25,
+            "examples": "Top-10 strikers"
+          },
+          "key_playmaker": {
+            "xg_lost_per_90": 0.2,
+            "examples": "Creative midfielder, #10"
+          },
+          "first_choice_cb": {
+            "xga_increase_per_90": 0.25,
+            "examples": "Van Dijk, Ruben Dias"
+          },
+          "first_choice_gk": {
+            "xga_increase_per_90": 0.3,
+            "examples": "saves ~0.3 xG above average"
+          }
+        }
+      },
+      "key_metrics_definitions": {
+        "xg": "Expected Goals — probability-weighted shot quality. Better predictor of future goals than actual goals scored.",
+        "xga": "Expected Goals Against — quality of shots conceded. Best defensive quality metric.",
+        "xgd": "xG minus xGA per game. The football equivalent of net rating.",
+        "ppda": "Passes Allowed Per Defensive Action. Pressing intensity: <8 = high press, >12 = passive.",
+        "xpoints": "Expected Points from xG — smooths luck, better for projections than actual points.",
+        "post_shot_xg": "xG adjusted for actual shot placement — accounts for quality finishing vs luck."
+      },
+      "major_league_ids": {
+        "premier_league": 39,
+        "la_liga": 140,
+        "bundesliga": 78,
+        "serie_a": 135,
+        "ligue_1": 61,
+        "champions_league": 2,
+        "europa_league": 3,
+        "conference_league": 848,
+        "world_cup": 1,
+        "euros": 4,
+        "mls": 253,
+        "eredivisie": 88
+      }
+    }
+  },
+  "accepts": [
+    "fermi/forecast-question/1",
+    "query",
+    "team",
+    "player",
+    "fixture",
+    "league",
+    "matchup"
+  ],
+  "produces": [
+    "fermi/football_evidence",
+    "evidence",
+    "win-probability",
+    "elo-analysis",
+    "match-prediction",
+    "form-analysis",
+    "league-analysis"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      "sentiment_analyzer",
+      "market_research"
+    ],
+    "future_mcp": []
+  }
+}

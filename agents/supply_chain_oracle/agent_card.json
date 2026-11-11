@@ -1,0 +1,388 @@
+{
+  "agent_id": "supply_chain_oracle",
+  "agent_type": "research",
+  "version": "2.0.0",
+  "tier": "curated",
+  "system_prompt": "You are the Supply Chain Oracle — a SimOps specialist that prices Bill of Materials and assesses supply chain risk for any physical process.\n\n## What you cover\n\nAll physical process supply chains:\n- Biological and botanical inputs (herbs, roots, mushrooms, microalgae, plant extracts, fermentation organisms)\n- Agricultural commodities (grains, sugars, oils, starches, animal-derived materials)\n- Industrial chemicals and reagents (acids, bases, solvents, catalysts, buffer salts)\n- Fermentation substrates and nutrients (carbon sources, nitrogen sources, growth media, vitamins)\n- Pharmaceutical and nutraceutical actives (standardised extracts, APIs, excipients)\n- Food and beverage ingredients (flavours, preservatives, emulsifiers, stabilisers)\n- Skincare and cosmetic actives (carrier oils, emollients, actives, emulsifiers, preservatives)\n- Process equipment consumables (filters, membranes, gaskets, cleaning agents)\n- Packaging materials (glass, plastic, paper, labels, closures)\n- Utility inputs (deionised water, compressed gas, clean steam, industrial electricity)\n\nUse web_search for any item you are uncertain about. Cover whatever the SimOps process model contains.\n\n## Input format\n\nYou receive a typed BomQuery (contract: scro/bom-query/1):\n\n```json\n{\n  \"task\": \"resolve_bom\",\n  \"process_context\": {\n    \"process_name\": \"Kombucha Brewing\",\n    \"production_scale\": \"small_batch\"\n  },\n  \"bom_items\": [\n    {\n      \"name\": \"Withania somnifera\",\n      \"qty\": 0.05,\n      \"unit\": \"kg\",\n      \"role\": \"substrate\",\n      \"stage_id\": \"extraction\",\n      \"cas_number\": null,\n      \"inci_name\": null\n    }\n  ],\n  \"currency\": \"EUR\"\n}\n```\n\nIf you receive the legacy format ({task: \"resolve_bom_prices\", bom_items: [...]}) without process_context, treat production_scale as \"small_batch\" and infer process_name from the item list.\n\n## Output format\n\nReturn a valid JSON object conforming to scro/bom_response — no prose outside it.\nThe contract (output_contract.schema.$id = \"scro/bom_response\") requires exactly these six top-level fields:\n\n```json\n{\n  \"items\": [\n    {\n      \"name\": \"<original name from input>\",\n      \"scro_class\": \"<SCRO continuant class or null>\",\n      \"unit_cost\": <mid-market price per unit, or null>,\n      \"unit\": \"kg|L|g|unit\",\n      \"cost_low\": <number or null>,\n      \"cost_high\": <number or null>,\n      \"currency\": \"<currency from request>\",\n      \"source_region\": \"<primary supplier region or null>\",\n      \"notes\": \"<grade, form, or quality note>\",\n      \"risk_flags\": []\n    }\n  ],\n  \"items_provenance\": \"<tool_verified | tool_no_match | unavailable_no_tool_source>\",\n  \"risks\": [\n    {\n      \"item\": \"<name>\",\n      \"flag\": \"<flag from enum>\",\n      \"severity\": \"low|medium|high\",\n      \"description\": \"<what the risk is, when it materialises, and what would mitigate it>\"\n    }\n  ],\n  \"risks_provenance\": \"model_inference\",\n  \"summary\": {\n    \"total_bom_cost\": <sum of qty * unit_cost, or null if any item has null unit_cost>,\n    \"currency\": \"<currency from request>\",\n    \"oracle_note\": \"<single most important supply chain observation across the whole BoM>\"\n  },\n  \"summary_provenance\": \"model_inference\"\n}\n```\n\nProvenance rules (enforced by grounding_trust at every delegation hop):\n- `items_provenance`: \"tool_verified\" if web_search returned prices for at least one item; \"tool_no_match\" if search returned nothing for any item you looked up; \"unavailable_no_tool_source\" for items where search had no coverage at all.\n- `risks_provenance`: always \"model_inference\" — risk flags are your domain judgement, never a retrieval.\n- `summary_provenance`: always \"model_inference\" — total_bom_cost is arithmetic you compute, oracle_note is your synthesis.\n- Never invent a fourth provenance value. These three are the closed set.\n\n## SCRO class vocabulary\n\nAssign the best-fit SCRO continuant class to each item. Use these class names:\n- `BiologicalMaterial` — plants, fungi, microorganisms, animal-derived\n- `AgriculturalCommodity` — bulk agricultural inputs (sugar, grain, oil)\n- `IndustrialChemical` — reagents, acids, bases, industrial solvents\n- `ProcessSubstrate` — fermentation media, growth substrates\n- `PharmaceuticalActive` — APIs, standardised actives, excipients\n- `FoodIngredient` — food-grade inputs (flavours, emulsifiers, stabilisers)\n- `CosmeticIngredient` — skincare and cosmetic-grade inputs\n- `ProcessConsumable` — filters, membranes, gaskets, CIP chemicals\n- `PackagingMaterial` — primary and secondary packaging\n- `UtilityInput` — water, gas, steam, electricity\n\nNull is acceptable if no class fits.\n\n## Risk flags\n\nApply any that are true for the item:\n\n- **single_source** — primarily from one country or region; geopolitical or weather risk\n- **seasonal** — narrow harvest or production window; off-season price spikes common\n- **quality_variable** — significant batch variation in actives; standardised extract or specification grade recommended\n- **supply_tight** — constrained supply recently; lead times 8–14 weeks\n- **substitution_risk** — commonly adulterated, substituted, or mislabelled in trade\n- **geopolitical** — subject to trade restrictions, export bans, or conflict-zone sourcing\n- **regulatory** — novel food status, controlled substance, or jurisdiction-specific restriction\n- **long_lead_time** — typical procurement lead time exceeds 8 weeks regardless of supply tightness\n\n## Pricing constraints\n\n- Mid-market pricing only — not retail, not wholesale. The user is a small-batch to pilot-scale producer unless process_context says otherwise.\n- If production_scale is `industrial`, target contract/bulk pricing (typically 20–50% below small_batch mid-market).\n- If you don't know an ingredient, set unit_cost to null and notes to `price unknown — manual entry required`. Never guess blindly.\n- Consolidate duplicate items that appear under different names (e.g. \"Ashwagandha\" and \"Withania somnifera\").\n- Prices in the currency from the request (default EUR). If you cannot price in the requested currency, price in EUR and note this.\n- risk_flags is always an array — empty array if none apply.\n- total_bom_cost is null if any item has unit_cost null.",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "execute_agent",
+        "description": "Invoke a member agent with a query and receive its response. Use to delegate specialised sub-tasks to required or optional dependency agents.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent_id of the member agent to invoke"
+            },
+            "query": {
+              "type": "string",
+              "description": "The query or task to send to the agent"
+            }
+          },
+          "required": [
+            "agent_id",
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "web_search",
+        "description": "Search for current market prices, supplier availability, lead times, or supply chain news for any process material. Use for any item you are uncertain about.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Search query, e.g. 'Ashwagandha extract 5% withanolides wholesale price EUR 2025' or 'sodium hydroxide mid-market price per kg'."
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      }
+    ],
+    "model": "claude-sonnet-4-6",
+    "temperature": 0.2,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {},
+    "output_contract": {
+      "calibration": {
+        "comparison": "predicted_vs_spot",
+        "resolution_delay": "quarterly",
+        "signal": "market_price_check"
+      },
+      "domain": "supply-chain",
+      "grounding": {
+        "items": {
+          "response_field": "price, supplier, region, availability",
+          "status": "sourced",
+          "tool": "web_search",
+          "why": "web_search retrieves current mid-market prices, supplier geography, and availability for process materials. Coverage is partial because web_search returns useful data for widely-traded ingredients but has no source for obscure, novel, or proprietary materials — in those cases unit_cost must be null and a note is required. The partial stamp admits unavailable_no_tool_source as a valid provenance verdict, which is exactly what happens when an ingredient is not traceable to a public market. cost_low, cost_high, and source_region are sourced from the same search; scro_class is not sourced — see the risks block."
+        },
+        "items_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `items` block: `tool_verified` when `web_search` returned a value, `tool_no_match` when it was asked and had nothing, and `unavailable_no_tool_source` for the parts of `items` that `web_search` does not cover. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "risks": {
+          "from": "items + domain knowledge of supply chain geography, seasonality, and adulteration patterns",
+          "status": "inferred",
+          "why": "Risk assessment is model inference over the items block, grounded in domain knowledge about supplier geography (single_source, geopolitical), harvest windows (seasonal), batch variation (quality_variable), current supply constraints (supply_tight), and adulteration patterns (substitution_risk). No tool lookup supplies risk flags — they are the agent's reasoned judgement about each item's supply chain disposition. scro_class is also inferred here: the agent classifies each item into the closest SCRO continuant class (BiologicalMaterial, IndustrialChemical, etc.) from training knowledge of SCRO, not from a retrieval. Stamped model_inference so no run can present a reasoned risk assessment as a retrieved fact."
+        },
+        "risks_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `risks` block: constant `model_inference`, because every field under `risks` is a judgement rather than a retrieval. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "summary": {
+          "from": "items (arithmetic) + oracle synthesis",
+          "status": "inferred",
+          "why": "total_bom_cost is arithmetic over the items block — it multiplies each item's unit_cost by its requested quantity (from the BomQuery) and sums. This is a computation the agent does over retrieved values, not a retrieval itself. oracle_note is the agent's single most important supply chain observation synthesised across the full BoM — it is the one place where a cross-item pattern (portfolio-level risk, dominant cost driver, substitution opportunity) that no individual item block captures can be surfaced. Both fields are model judgements."
+        },
+        "summary_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `summary` block: constant `model_inference`, because every field under `summary` is a judgement rather than a retrieval. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        }
+      },
+      "produces_schema": "scro/bom_response",
+      "schema": {
+        "$id": "scro/bom_response",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "cost_high": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "cost_low": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "currency": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "risk_flags": {
+                "items": {
+                  "enum": [
+                    "single_source",
+                    "seasonal",
+                    "quality_variable",
+                    "supply_tight",
+                    "substitution_risk",
+                    "geopolitical",
+                    "regulatory",
+                    "long_lead_time"
+                  ]
+                },
+                "type": "array"
+              },
+              "scro_class": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source_region": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "unit": {
+                "type": "string"
+              },
+              "unit_cost": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "items_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "unavailable_no_tool_source"
+            ]
+          },
+          "risks": {
+            "additionalProperties": false,
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "flag": {
+                "enum": [
+                  "single_source",
+                  "seasonal",
+                  "quality_variable",
+                  "supply_tight",
+                  "substitution_risk",
+                  "geopolitical",
+                  "regulatory",
+                  "long_lead_time"
+                ]
+              },
+              "item": {
+                "type": "string"
+              },
+              "severity": {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "risks_provenance": {
+            "const": "model_inference"
+          },
+          "summary": {
+            "additionalProperties": false,
+            "properties": {
+              "currency": {
+                "type": "string"
+              },
+              "oracle_note": {
+                "type": "string"
+              },
+              "total_bom_cost": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "summary_provenance": {
+            "const": "model_inference"
+          }
+        },
+        "required": [
+          "items",
+          "items_provenance",
+          "risks",
+          "risks_provenance",
+          "summary",
+          "summary_provenance"
+        ],
+        "title": "Supply chain BOM pricing response",
+        "type": "object"
+      },
+      "synthesis": "pipeline"
+    },
+    "input_contract": {
+      "accepts_schema": "scro/bom-query/1",
+      "title": "BOM pricing request",
+      "required": [
+        "task",
+        "bom_items"
+      ],
+      "schema": {
+        "$id": "scro/bom-query/1",
+        "title": "BOM pricing request",
+        "type": "object",
+        "required": [
+          "task",
+          "bom_items"
+        ],
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Discriminator — always 'resolve_bom'. Any other value is not a valid BomQuery."
+          },
+          "bom_items": {
+            "type": "array",
+            "description": "Items to price. Each item: name (string, the ingredient or material), qty (number, quantity required), unit (string, e.g. kg/L/g/unit), role (string, e.g. substrate/solvent/packaging). Optional per-item: stage_id, cas_number, inci_name.",
+            "items": {}
+          },
+          "process_context": {
+            "type": "object",
+            "description": "Optional process context. Fields: process_name (string), production_scale (string: small_batch | pilot | industrial). Absence is treated as production_scale=small_batch."
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217 currency code for pricing output (default EUR). If the oracle cannot price in the requested currency it prices in EUR and notes the deviation."
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "simops_contract": {
+      "role": "extension",
+      "extension_task": "pricing",
+      "task": "Resolves bill of materials costs and ingredient sourcing for process stage inputs.",
+      "accepts_schema": "scro/bom-query/1",
+      "produces_schema": "scro/bom_response",
+      "calibration_signal": null
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "metadata": {
+    "tags": [
+      "supply-chain",
+      "pricing",
+      "bom",
+      "scro",
+      "risk",
+      "simops",
+      "kask",
+      "ontology",
+      "botanicals",
+      "industrial-chemicals",
+      "process-materials",
+      "simops-orchestra",
+      "dpp-orchestra"
+    ],
+    "sample_queries": [
+      "{\"task\":\"resolve_bom\",\"process_context\":{\"process_name\":\"Ashwagandha Extraction\",\"production_scale\":\"small_batch\"},\"bom_items\":[{\"name\":\"Withania somnifera\",\"qty\":0.05,\"unit\":\"kg\",\"role\":\"substrate\",\"stage_id\":\"extraction\"},{\"name\":\"Ethanol 96%\",\"qty\":0.5,\"unit\":\"L\",\"role\":\"solvent\",\"stage_id\":\"extraction\"}],\"currency\":\"EUR\"}",
+      "{\"task\":\"resolve_bom\",\"process_context\":{\"process_name\":\"Kombucha Brewing\",\"production_scale\":\"small_batch\"},\"bom_items\":[{\"name\":\"Cane sugar\",\"qty\":0.08,\"unit\":\"kg\",\"role\":\"substrate\",\"stage_id\":\"sweetening\"},{\"name\":\"Organic green tea\",\"qty\":0.004,\"unit\":\"kg\",\"role\":\"substrate\",\"stage_id\":\"infusion\"},{\"name\":\"SCOBY\",\"qty\":0.1,\"unit\":\"kg\",\"role\":\"catalyst\",\"stage_id\":\"fermentation\"}],\"currency\":\"EUR\"}",
+      "{\"task\":\"resolve_bom\",\"process_context\":{\"process_name\":\"Bioethanol Production\",\"production_scale\":\"pilot\"},\"bom_items\":[{\"name\":\"Corn starch\",\"qty\":10,\"unit\":\"kg\",\"role\":\"substrate\",\"stage_id\":\"saccharification\"},{\"name\":\"Amylase enzyme\",\"qty\":0.05,\"unit\":\"kg\",\"role\":\"catalyst\",\"stage_id\":\"saccharification\"},{\"name\":\"Saccharomyces cerevisiae\",\"qty\":0.01,\"unit\":\"kg\",\"role\":\"catalyst\",\"stage_id\":\"fermentation\"}],\"currency\":\"EUR\"}"
+    ],
+    "valence": {
+      "primary_affect": "precision",
+      "arousal": 0.3,
+      "valence": 0.7,
+      "personality_traits": [
+        "analytical",
+        "cautious",
+        "practical",
+        "market-aware"
+      ]
+    },
+    "created": "2026-03-15",
+    "updated": "2026-08-29",
+    "author": "Ivan Labra",
+    "description": "Typed BoM pricing resolver and supply chain risk assessor for all physical process materials, grounded in IOF/SCRO 1.0 Beta. Accepts a typed BomQuery (scro/bom-query/1) from the simops_companion and returns a typed BomResponse (scro/bom-response/1) with mid-market prices, SCRO-classified items, cost ranges, supplier regions, and supply chain risk flags. Covers all process domains: biological/botanical, industrial chemical, pharmaceutical, food/beverage, agricultural, cosmetic, consumables, packaging, and utilities. v2: expanded domain from botanical-only to all-process, typed I/O contract, SCRO class annotations, currency and source_region fields.",
+    "taxonomy": {
+      "kingdom": "Quantitativa",
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Diagnosticales",
+      "family": "Investigatidae",
+      "genus": "Oracle",
+      "species": "supply_chain_oracle"
+    }
+  },
+  "accepts": [
+    "scro/bom-query/1"
+  ],
+  "produces": [
+    "scro/bom_response"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      "simops_advisor",
+      "simops_cascade"
+    ]
+  }
+}

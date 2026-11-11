@@ -1,9 +1,10 @@
 //! Commands and event envelopes (target-system-design §3.7, §3.8).
 //!
 //! A command is validated purely (§3.2.1 step 0), declares its write and read sets (step
-//! 3), and decides its appends from the locked stream heads (step 5). The ledger does
-//! everything else. [`Command`] is sealed in M1: the only implementation is the
-//! conformance probe (ADR-0004); domain aggregates open it in M2.
+//! 3), folds the state it needs from the locked streams (step 4) and decides its appends
+//! synchronously from that state (step 5). The ledger does everything else. [`Command`]
+//! stays sealed in M2 (ADR-0008 §1 item 5): every aggregate lives in this crate, so no
+//! decision and no transaction is reachable from outside it (SUB-06).
 
 use crate::artifact::PendingArtifact;
 use crate::ctx::CommandCtx;
@@ -119,7 +120,7 @@ impl Heads {
     }
 }
 
-/// An event as appended in this transaction (§3.7 `RecordedEvent`, the fields M1 uses).
+/// An event as appended in this transaction (§3.7 `RecordedEvent`, the fields used so far).
 #[derive(Debug, Clone)]
 pub struct Recorded {
     pub(crate) stream_id: String,
@@ -128,33 +129,68 @@ pub struct Recorded {
     pub(crate) event_type: &'static str,
     pub(crate) payload: Value,
     pub(crate) payload_sha: Sha256Ref,
+    /// `ledger.streams.tenant_id` of the stream, which projections carry (§13.1).
+    pub(crate) tenant: String,
+    pub(crate) actor: String,
 }
+
+/// A boxed `Send` future, the shape of the ledger-internal async steps of a command.
+pub(crate) type BoxFuture<'a, T> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
 
 pub(crate) mod sealed {
     use super::*;
+    use sqlx::PgConnection;
 
     /// The command contract. Public only as the sealed supertrait of [`super::Command`].
+    ///
+    /// The async steps (`route`, `fold`) read the ledger's own tables on the dispatch
+    /// connection; nothing else is awaited inside a dispatch. `decide` is a plain
+    /// synchronous fn (SUB-06, `cargo xtask check` rule `sync-decide`).
     pub trait CommandSpec: Send + Sync + 'static {
         /// `ledger.command_dedup.command_type`.
         const TYPE: &'static str;
         type Output: Serialize + DeserializeOwned + Send;
+        /// Immutable facts read before the lock that the write set depends on (for example
+        /// the owner of an episode, fixed by `episode.opened`).
+        type Route: Send + Sync;
+        /// The state `decide` needs, folded from the locked streams (§3.2.1 step 4).
+        type Facts: Send + Sync;
 
         /// Step 0: pure checks of the command alone. No connection is acquired before it.
         fn validate(&self, ctx: &CommandCtx) -> Result<(), Rejection>;
         fn idempotency_key(&self) -> Option<&str>;
         /// The canonical request, hashed into `command_dedup.request_sha`.
         fn request(&self) -> Value;
+        /// Before step 3: reads the immutable facts the stream sets depend on.
+        fn route<'a>(
+            &'a self,
+            conn: &'a mut PgConnection,
+        ) -> BoxFuture<'a, Result<Self::Route, DispatchError>>;
         /// Streams appended to (W) and only read (R) (§3.2.1 step 3).
-        fn write_set(&self) -> Vec<String>;
-        fn read_set(&self) -> Vec<String>;
-        /// Step 5: pure decision from the locked heads.
+        fn write_set(&self, route: &Self::Route) -> Vec<String>;
+        fn read_set(&self, route: &Self::Route) -> Vec<String>;
+        /// Step 4: folds the locked streams into the state the decision reads.
+        fn fold<'a>(
+            &'a self,
+            conn: &'a mut PgConnection,
+            route: &'a Self::Route,
+            ctx: &'a CommandCtx,
+        ) -> BoxFuture<'a, Result<Self::Facts, DispatchError>>;
+        /// Step 5: pure decision from the locked heads and the folded state.
         fn decide(
             &self,
             heads: &Heads,
+            facts: &Self::Facts,
             ctx: &CommandCtx,
         ) -> Result<Vec<StreamAppend>, DispatchError>;
-        /// The result, deterministic from the appended events (§3.2.1 step 12).
-        fn output(&self, recorded: &[Recorded]) -> Result<Self::Output, DispatchError>;
+        /// The result, deterministic from the appended events and the folded state
+        /// (§3.2.1 step 12).
+        fn output(
+            &self,
+            recorded: &[Recorded],
+            facts: &Self::Facts,
+        ) -> Result<Self::Output, DispatchError>;
     }
 }
 

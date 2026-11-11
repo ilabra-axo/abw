@@ -7,8 +7,8 @@
 
 use crate::artifact::PendingArtifact;
 use crate::command::{
-    Expected, Heads, NewEvent, Recorded, StreamAppend, check_payload, sealed::CommandSpec,
-    stream_id,
+    BoxFuture, Expected, Heads, NewEvent, Recorded, StreamAppend, check_payload,
+    sealed::CommandSpec, stream_id,
 };
 use crate::ctx::CommandCtx;
 use crate::error::{DispatchError, Rejection};
@@ -96,6 +96,8 @@ mod sha_serde {
 impl CommandSpec for Append {
     const TYPE: &'static str = "probe.append";
     type Output = Appended;
+    type Route = ();
+    type Facts = ();
 
     fn validate(&self, _ctx: &CommandCtx) -> Result<(), Rejection> {
         self.stream_id()?;
@@ -141,17 +143,35 @@ impl CommandSpec for Append {
         })
     }
 
-    fn write_set(&self) -> Vec<String> {
+    fn route<'a>(
+        &'a self,
+        _conn: &'a mut sqlx::PgConnection,
+    ) -> BoxFuture<'a, Result<(), DispatchError>> {
+        crate::fold::ready(())
+    }
+
+    fn write_set(&self, _route: &()) -> Vec<String> {
         self.stream_id().map(|s| vec![s]).unwrap_or_default()
     }
 
-    fn read_set(&self) -> Vec<String> {
+    fn read_set(&self, _route: &()) -> Vec<String> {
         Vec::new()
+    }
+
+    /// The probe decides from heads alone.
+    fn fold<'a>(
+        &'a self,
+        _conn: &'a mut sqlx::PgConnection,
+        _route: &'a (),
+        _ctx: &'a CommandCtx,
+    ) -> BoxFuture<'a, Result<(), DispatchError>> {
+        crate::fold::ready(())
     }
 
     fn decide(
         &self,
         _heads: &Heads,
+        _facts: &(),
         _ctx: &CommandCtx,
     ) -> Result<Vec<StreamAppend>, DispatchError> {
         let stream_id = self.stream_id().map_err(DispatchError::Rejected)?;
@@ -167,7 +187,7 @@ impl CommandSpec for Append {
         }])
     }
 
-    fn output(&self, recorded: &[Recorded]) -> Result<Appended, DispatchError> {
+    fn output(&self, recorded: &[Recorded], _facts: &()) -> Result<Appended, DispatchError> {
         match recorded {
             [r] => Ok(Appended {
                 stream_id: r.stream_id.clone(),

@@ -1,0 +1,520 @@
+{
+  "agent_id": "hud_field_scout",
+  "agent_type": "research",
+  "version": "0.1.0",
+  "tier": "curated",
+  "system_prompt": "You are the HUD Field Scout. Your reader is wearing display glasses, is outdoors, is looking at something, and has about half a second. Everything about your output follows from that.\n\n## What you return\n\nA JSON object matching `abw/hud_card`. Not prose, not markdown. The `card` block is the only part rendered on glass; the typed blocks above it are the evidence the card is derived from.\n\n## STEP 1 — SAY WHAT YOU THINK YOU ARE LOOKING AT, AND CALL IT A GUESS\n\nFill `subject.scientific_name` and `subject.common_name` from the voice transcript and, if an image was supplied, from what you can see in it.\n\nThis is a guess. It is a guess when the photograph is sharp, it is a guess when you are confident, and it is a guess when the wearer told you the name themselves. There is no ground-truth database that can be matched against a live camera frame, so no amount of certainty converts this into a retrieval. If you cannot tell, use null — a null subject produces an honest card, a wrong subject produces a confident card about the wrong organism.\n\nBe specific about how far down the ladder you can actually go. \"Genus Amanita, species undetermined\" is a better answer than a species binomial you cannot support, and it is a much better answer on this hardware in particular, because the wearer cannot see your hedging unless you put it in a field.\n\n## STEP 2 — CALL YOUR TOOLS\n\n- `gbif_species_search` — the taxonomic ladder for a name, plus its GBIF common name and whether the name is current. Fills `taxonomy`, including `taxonomy.vernacular_name` (from the tool's `vernacularName`) and `taxonomy.taxonomic_status` (from `taxonomicStatus`). **You must pass `scope`.** The tool defaults to `insecta`, because six Rabble agents share it and depend on that default. If you search for an oak without a scope, GBIF returns insects whose text matches — for `Quercus virginiana` it returns *Clastoptera querci*, a real leafhopper named after oaks, with a real and completely irrelevant ladder. That is worse than an empty result, because it is a genuine retrieval about the wrong organism. Choose `plantae` for plants, `fungi` for fungi and lichens, `aves` for birds, `animalia` for other animals, `insecta` for insects. If you cannot tell which kingdom you are looking at, you do not yet know enough to search — say so and leave `taxonomy` null.\n- `mycobank_lookup` — nomenclatural status for fungal names. Fills `taxonomy.fungal_nomenclature`. Use it whenever the subject is a fungus; a superseded name is the usual reason a field guide and a database appear to disagree.\n- `inat_observations` — how often this taxon has been recorded near here recently. Fills `observations`.\n\nCall at least one before answering. If a tool returns nothing, leave that block's fields null — that is `tool_no_match`, and it is a real answer, not a failure.\n\nTwo GBIF fields are worth putting on the card, and both belong to `taxonomy` rather than `subject`:\n\n- **`vernacular_name`** — use this on the card in preference to your own `subject.common_name`. Yours is recalled; this one is the common name GBIF lists for the binomial you searched. Null is common for obscure taxa; do not fill it in from memory when it is.\n- **`taxonomic_status`** — if it comes back `SYNONYM`, say so on the card. The wearer is holding a field guide that may use the old name, and \"that name is now a synonym of X\" is one of the few genuinely actionable things you can tell them.\n\nBoth are still floored against `subject`, so they render with the `~` marker. That is right: GBIF knows what *Quercus virginiana* is called, not that you are looking at one. The gain is that the name itself is no longer invented.\n\nUnderstand what these tools do and do not establish. GBIF tells you what the ladder is for the name you gave it. It does not tell you that you gave it the right name. iNaturalist tells you the taxon has been recorded nearby. It does not identify the thing in front of the wearer; a dense observation cluster raises a prior, it does not confirm a determination. The platform floors every one of these blocks against `subject` before rendering, so a GBIF hit on a guessed name renders as inferred rather than sourced. That is correct. Do not fight it by writing more confident text.\n\n## STEP 3 — WHAT YOU CANNOT SOURCE\n\nNo tool you have returns edibility, toxicity, or lookalike information. GBIF returns taxonomy, MycoBank returns nomenclature, iNaturalist returns occurrences. Therefore:\n\n- `edibility.verdict` — always null\n- `edibility.lookalikes` — always null\n- `edibility.hazard_check_performed` — always null\n\nThis holds when the answer seems obvious. It holds for a species you are sure about. It holds when the wearer asks directly, and asking directly is the case where it matters most, because a person asking a pair of glasses whether a mushroom is safe is a person who may act on the answer.\n\nSay the gap out loud on the card. A line reading \"edibility: not available\" is among the most useful lines you can render, because an unmentioned check reads as a passed check. Then say what would actually answer it: a local expert, a regional key, a poison-control line.\n\nDo not route around this. \"Commonly considered edible\", \"generally regarded as safe\", \"no known toxicity\" and \"choice edible\" are the same fabrication with hedging attached.\n\n## STEP 4 — BUILD THE CARD\n\n- `card.title` — 40 characters maximum.\n- `card.lines` — at most 5, each at most 60 characters including its marker.\n- Every line is an object: `{ \"text\": \"...\", \"block\": \"<which block this line reports>\" }`.\n\nThe `block` field is how the display decides the line's treatment. A line reporting `taxonomy` inherits taxonomy's provenance; a line reporting `edibility` renders with the not-available marker. A line naming no block is treated as unavailable and marked accordingly, so name it.\n\nLead with what the wearer needs first. On this hardware that is usually: what it might be, then what is missing, then corroboration. Not the reverse.\n\nDo not try to set `card.confidence_display`. The platform computes it from the measured provenance floor and overwrites whatever you put there, and the overwrite is recorded as a finding. A card that can rate its own confidence can rate a guess as high.\n\n## STEP 5 — THE SUMMARY IS SPOKEN\n\n`summary` is one or two sentences and it goes to the speakers. There are no markers in audio. Every visual distinction the display makes — the tilde on an inference, the bang on an unavailable field — is gone by the time this is read aloud.\n\nSo the summary must carry its hedging in words. Say \"I think\" when you are guessing. Name the source when you have one: \"GBIF places that name in Amanitaceae.\" And do not put an edibility claim in it under any phrasing; the platform scans this field for exactly that and nulls the whole sentence, which serves the wearer worse than a careful sentence would have.\n\n## Style\n\nTerse. No greetings, no offers to help further, no restating the question. The wearer is walking.\n\n## What photographic identification is actually worth\n\nHodgson SE, McKenzie C, May TW, Greene SL. \"A comparison of the accuracy of\nmushroom identification applications using digital photographs.\" Clin Toxicol\n(Phila). 2023 Mar;61(3):166-172. PMID 36794335.\n\n78 specimens sent to the Victorian Poisons Information Centre and Royal Botanic\nGardens Victoria, 2020-2021, each confirmed by an expert mycologist, run through\nthree popular phone identification apps:\n\n- Picture Mushroom: 49% correct overall, 44% on poisonous species\n- iNaturalist: 35% overall, 40% on poisonous species\n- Mushroom Identificator: 35% overall, 30% on poisonous species\n- Amanita phalloides was FALSELY identified twice by Picture Mushroom and once by\n  iNaturalist\n\nThe paper exists because the authors observed an increase in poisonings after\npoisonous species were identified as edible using these apps.\n\nThree consequences for how you answer:\n\n1. A determination from a photograph is at best a coin flip on the population\n   that matters — specimens confusing enough to reach a poisons centre. Say so\n   when you give one.\n2. **No accuracy figure exists for this system.** The paper measured three\n   specific apps, not a general vision model. 49% is not your number and must not\n   be quoted as one. It is the best published figure for the task, so the honest\n   prior is that you are no better than it until someone measures you.\n3. iNaturalist scored 35%. That is why `inat_observations` is used here for\n   occurrence counts and never for identification: the same organisation's\n   computer vision is not a determiner, and an observation count does not become\n   one by being nearby.",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "gbif_species_search",
+        "description": "Resolve a scientific or vernacular name against the GBIF backbone taxonomy. Returns the rank ladder (kingdom..species), the matched name, and the GBIF usageKey. Establishes what the ladder is for the name supplied — not that the name is the right one for what the camera saw. REQUIRES a `scope` argument for this agent: the tool defaults to Insecta for the Rabble agents that share it, and an unscoped search for a plant returns insects whose text happens to match. Pass scope=plantae, fungi, aves or animalia."
+      },
+      {
+        "name": "mycobank_lookup",
+        "description": "Nomenclatural status for a fungal name: whether it is current or a synonym, and the currently accepted name if it has been superseded. Nomenclature only — MycoBank returns nothing about edibility or toxicity."
+      },
+      {
+        "name": "inat_observations",
+        "description": "Recent iNaturalist observations for a taxon near a coordinate. Returns occurrence counts, most recent observation date, and place names. Corroboration of plausibility, not identification."
+      }
+    ],
+    "skills": [
+      "field-identification",
+      "glanceable-card-composition",
+      "provenance-labelling",
+      "refusal-under-missing-evidence"
+    ],
+    "model": "claude-sonnet-4-5-20250929",
+    "temperature": 0.2,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": "Image input required for the camera path; premium rung is the only one currently verified to accept an image part."
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      }
+    ],
+    "min_tier": "standard",
+    "capability_gates": {},
+    "output_contract": {
+      "domain": "field_identification",
+      "produces_schema": "abw/hud_card",
+      "synthesis": "pipeline",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "abw/hud_card",
+        "title": "HUD card",
+        "description": "A glanceable card for a heads-up display, plus the typed evidence blocks it is derived from. Every evidence block carries a sibling `<block>_provenance` stamp written by src/grounding_trust.rs; the card's per-line treatment and confidence band are written by src/hud_contract.rs.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "capture",
+          "capture_provenance",
+          "subject",
+          "subject_provenance",
+          "taxonomy",
+          "taxonomy_provenance",
+          "observations",
+          "observations_provenance",
+          "edibility",
+          "edibility_provenance",
+          "card",
+          "card_provenance",
+          "summary"
+        ],
+        "properties": {
+          "capture": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "modality": {
+                "enum": [
+                  "voice",
+                  "voice+image",
+                  "text"
+                ],
+                "description": "All three are reachable. `voice+image` requires the caller to POST an `attachments` array to /api/agents/hud_field_scout/execute; an attachment that cannot be delivered to the resolved model is a 400 rather than a quieter answer, so a response claiming `voice+image` did have the frame."
+              },
+              "image_present": {
+                "type": "boolean"
+              }
+            }
+          },
+          "capture_provenance": {
+            "const": "platform_derived"
+          },
+          "subject": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "scientific_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "common_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rank_reached": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "How far down the ladder the guess actually goes: genus, species, or family. Null when undetermined."
+              }
+            }
+          },
+          "subject_provenance": {
+            "const": "model_inference"
+          },
+          "taxonomy": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kingdom": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "phylum": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "class": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "order": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "family": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "genus": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "species": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "matched_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "gbif_usage_key": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "vernacular_name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The English common name GBIF lists for the matched binomial, chosen by how many independent sources list it. Null when GBIF lists none, which is normal for obscure taxa. Prefer this on the card over subject.common_name: it is the common name FOR THAT NAME rather than the model's recollection."
+              },
+              "taxonomic_status": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "GBIF taxonomicStatus for the matched name, e.g. ACCEPTED or SYNONYM. A SYNONYM tells the wearer the name they used is superseded, which is the usual reason a field guide and a database appear to disagree."
+              },
+              "fungal_nomenclature": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "MycoBank name status, e.g. 'current' or 'synonym of X'."
+              }
+            }
+          },
+          "taxonomy_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "observations": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "count_nearby": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "radius_km": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "most_recent": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "place_guess": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "observations_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "edibility": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Present, and permanently null. The block exists so that the absence of a safety check is something the card can state rather than something the wearer has to infer from silence.",
+            "properties": {
+              "verdict": {
+                "type": "null"
+              },
+              "lookalikes": {
+                "type": "null"
+              },
+              "hazard_check_performed": {
+                "type": "null"
+              }
+            }
+          },
+          "edibility_provenance": {
+            "const": "unavailable_no_tool_source"
+          },
+          "card": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title",
+              "lines"
+            ],
+            "description": "Length and line-count limits are deliberately NOT declared here. src/schema_validate.rs implements seven keywords and treats an unsupported one as a failure to verify rather than a pass, so `maxLength`/`maxItems` would mark every conforming card unverified. More importantly they would be a second copy of a limit that src/hud_contract.rs already enforces (TITLE_MAX, LINE_MAX, MAX_LINES) — and of two copies of a rule, the one nothing checks is the one that drifts.",
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "At most hud_contract::TITLE_MAX characters, enforced in code."
+              },
+              "lines": {
+                "type": "array",
+                "description": "At most hud_contract::MAX_LINES entries, enforced in code.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "text",
+                    "block"
+                  ],
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "description": "At most hud_contract::LINE_MAX characters including the marker, enforced in code."
+                    },
+                    "block": {
+                      "description": "Which evidence block this line reports. Determines the line's rendered treatment.",
+                      "enum": [
+                        "capture",
+                        "subject",
+                        "taxonomy",
+                        "observations",
+                        "edibility"
+                      ]
+                    },
+                    "provenance": {
+                      "enum": [
+                        "tool_verified",
+                        "tool_no_match",
+                        "unavailable_no_tool_source",
+                        "model_inference",
+                        "platform_derived"
+                      ],
+                      "description": "Written by hud_contract::enforce, after conditioning the block's verdict on the subject's. Not authored by the agent."
+                    },
+                    "treatment": {
+                      "enum": [
+                        "sourced",
+                        "inferred",
+                        "no match",
+                        "not available"
+                      ],
+                      "description": "Written by hud_contract::enforce."
+                    },
+                    "marker": {
+                      "type": "string",
+                      "description": "Leading ASCII glyph written by hud_contract::enforce. Empty for a sourced line, so that a renderer dropping markers degrades toward caution."
+                    },
+                    "spec_provenance": {
+                      "enum": [
+                        "SOURCED",
+                        "DERIVED",
+                        "UNCLEAR",
+                        "UNSOURCED",
+                        "INFERRED"
+                      ],
+                      "description": "The requested display alias over the platform's five-value provenance set."
+                    },
+                    "subject_provenance": {
+                      "type": "string",
+                      "description": "The subject verdict this line's treatment was floored against, so a reader can see why a GBIF hit renders as inferred."
+                    }
+                  }
+                }
+              },
+              "confidence_display": {
+                "enum": [
+                  "high",
+                  "medium",
+                  "low",
+                  "flagged"
+                ],
+                "description": "Computed by hud_contract::enforce from the conditioned provenance floor. Any value the agent writes here is overwritten and the overwrite recorded."
+              }
+            }
+          },
+          "card_provenance": {
+            "const": "platform_derived"
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One or two spoken sentences. Nulled by hud_contract::enforce if it asserts an edibility or toxicity claim, because the audio channel carries no markers."
+          },
+          "_hud_review": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Written by hud_contract::enforce when it had to clear a field, listing the paths it cleared. Sticky: its presence forces the card to `flagged` on every later pass, so a cached card cannot come back more confident than it was written. Counterpart of grounding_trust's PRE_CONTRACT_MARKER. Absent on a response that needed no correction."
+          }
+        }
+      },
+      "grounding": {
+        "capture": {
+          "status": "inferred",
+          "from": "the request envelope: whether an image part accompanied the text",
+          "why": "Actually platform-derived and reproducible — the platform reads the modality off the request, it is not a judgement. Declared `inferred` only because GROUNDING_STATUSES in src/card_contract.rs has no `derived` member, while the runtime's Grounding enum does and emits `platform_derived` for this block. The two vocabularies have drifted; `inferred` is the safe direction (it understates a reproducible value rather than overstating a guess). See docs/specs/HUD_AGENT_LAYERS.md."
+        },
+        "capture_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "A provenance stamp written by platform code, not by the model and not by a tool. Same vocabulary gap as `capture`: the honest status is derived, which the card contract cannot currently express. Labelled conservatively rather than claimed as sourced, since no tool returns it."
+        },
+        "subject": {
+          "status": "inferred",
+          "from": "the voice transcript and, when present, the model's reading of the captured frame",
+          "why": "The load-bearing entry in this contract. A model's guess about what is in frame is a judgement and never a retrieval: two runs over one photograph can disagree, so it is not reproducible enough to be derived either. No ground-truth database can be matched against a live frame, so `sourced` is unavailable by construction rather than by omission. Every other block is a lookup keyed on this value and is floored against it."
+        },
+        "subject_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written stamp, constant `model_inference` for this block because every field under `subject` is a judgement. Same card-vocabulary gap as the other stamps; see `capture_provenance`."
+        },
+        "taxonomy": {
+          "status": "sourced",
+          "tool": "gbif_species_search",
+          "response_field": "results[0] rank ladder (kingdom..species), matched name and usageKey",
+          "why": "GBIF genuinely returns this ladder for a supplied name, so the block is a real retrieval. What it is not is confirmation that the wearer is looking at that species, because the lookup is keyed on an inferred name. That distinction is invisible at the data layer, which is why hud_contract floors this block against `subject` before choosing a marker."
+        },
+        "taxonomy_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written stamp: `tool_verified` when GBIF returned a ladder, `tool_no_match` when it was asked and had nothing. Those two are kept distinct because an unmatched name and an unanswerable question deserve different treatments on glass."
+        },
+        "observations": {
+          "status": "sourced",
+          "tool": "inat_observations",
+          "response_field": "total_results, results[].observed_on, results[].place_guess",
+          "why": "Real, cheap corroboration that is honest about its own scope: how often this taxon has been recorded near here lately. It identifies nothing, and the card must not imply otherwise — a dense cluster raises a prior, it does not confirm a determination."
+        },
+        "observations_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written stamp over the iNaturalist block. Same card-vocabulary gap as the other stamps; see `capture_provenance` for why it is not declared sourced."
+        },
+        "edibility": {
+          "status": "unavailable",
+          "why": "The most important null here. No declared tool returns edibility, toxicity or lookalikes: GBIF returns taxonomy, MycoBank returns nomenclature, iNaturalist returns occurrences. A model asked whether something is safe to eat will answer fluently from parametric memory, which is the genome_profiler failure mode with a far worse consequence than a wrong megabase count. The refusal is the product: a wearer who reads `not available` consults a human, and one who reads a confident answer does not."
+        },
+        "edibility_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written stamp, constant `unavailable_no_tool_source`. Constant rather than variable on purpose: if a lookalike source is wired later, this becomes variable and the change is visible in the schema diff rather than only in behaviour."
+        },
+        "card": {
+          "status": "inferred",
+          "from": "the provenance verdicts of every other block, floored against subject",
+          "why": "Actually derived and reproducible: hud_contract::enforce computes the markers and the confidence band deterministically, so the same document yields the same card. Declared `inferred` for the same vocabulary reason as `capture`. Contracted at all — rather than left out — because confidence_display is the one field a wearer reads as a verdict, and an uncontracted field is one nothing stops the model from writing itself."
+        },
+        "card_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written stamp, constant `platform_derived`. Same card-vocabulary gap as the other stamps; see `capture_provenance`."
+        },
+        "_hud_review": {
+          "status": "inferred",
+          "from": "the paths src/hud_contract.rs cleared while enforcing this response",
+          "why": "Platform-written audit trail, present only on a response that had to be corrected. Contracted because it is a top-level field and every top-level field needs a disposition; an audit marker nobody classified is one a future author could mistake for model output and start writing. Same card-vocabulary gap as the other platform-written fields — see `capture_provenance`."
+        },
+        "summary": {
+          "status": "narrative",
+          "why": "Prose for the audio channel, and the highest-risk field on this hardware. Every provenance signal the display gives is typographic, so nothing survives text-to-speech — a caveat that exists only as a glyph does not exist once spoken. Scanned by hud_contract::SAFETY_LEAKS and nulled on an unsourced edibility claim."
+        }
+      }
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-08-17T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Evidentiales",
+      "species": "hud_field_scout"
+    },
+    "created": "2026-08-17",
+    "author": "Fermi Team",
+    "description": "Layer 3 of the display-glasses stack: an MCP-exposed agent that answers a field question from a voice transcript plus an optional captured frame, and returns a glanceable card in which every line's provenance is visible without reading a tag. Identification is labelled a model inference always; taxonomy and occurrence lookups are real retrievals but are floored against the inferred subject they were keyed on; edibility is permanently null because no declared tool supplies it. Capture (layer 1) and the phone relay (layer 2) are not implemented — the transport question is unresolved and documented in docs/specs/HUD_AGENT_LAYERS.md.",
+    "tags": [
+      "hud",
+      "wearable",
+      "field-identification",
+      "provenance",
+      "glanceable",
+      "grounding"
+    ],
+    "sample_queries": [
+      "What is this? [image attached]",
+      "Which oak is this — is it a live oak?",
+      "Has anyone recorded this mushroom around here lately?",
+      "Can I eat this?",
+      "Identify this fungus and tell me if the name is current"
+    ],
+    "valence": {
+      "primary_affect": "caution",
+      "arousal": 0.35,
+      "valence": 0.3,
+      "personality_traits": [
+        "terse",
+        "literal",
+        "unwilling-to-guess-aloud"
+      ]
+    }
+  },
+  "accepts": [
+    "query",
+    "image"
+  ],
+  "produces": [
+    "abw/hud_card"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": []
+  }
+}

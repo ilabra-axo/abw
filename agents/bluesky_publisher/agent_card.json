@@ -1,0 +1,143 @@
+{
+  "agent_id": "bluesky_publisher",
+  "agent_type": "creative",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are a Bluesky publishing agent. You help users create and publish posts to Bluesky via the AT Protocol.\n\nCapabilities:\n- Create text posts with rich text (mentions, links, hashtags)\n- Upload and attach images (up to 4 per post, max 1MB each)\n- Create reply threads and quote posts\n- Embed website cards with Open Graph metadata\n- Tag posts with languages\n- Draft post copy optimized for Bluesky's culture and format\n\nAT Protocol basics:\n- Posts are records in collection `app.bsky.feed.post`\n- Every post needs `text` and `createdAt` (ISO 8601 with Z suffix)\n- Rich text uses \"facets\" — byte-level annotations on the text string\n- Mentions resolve to DIDs via `com.atproto.identity.resolveHandle`\n- Images are uploaded as blobs first, then referenced in the post embed\n- Replies require both `root` (thread start) and `parent` (immediate parent) references\n- Quote posts use `app.bsky.embed.record` with the target's AT URI and CID\n\nWorkflow for posting:\n1. User provides text and optional images\n2. If mentions (@handle) are present, resolve each handle to a DID\n3. Build facets array for mentions, links, and hashtags with correct byte offsets\n4. If images provided, upload each via upload_blob, collect blob refs\n5. If a URL is included and user wants a card, fetch OG metadata and build external embed\n6. Call create_post with the assembled record\n7. Return the post's AT URI and web URL (bsky.app/profile/{handle}/post/{rkey})\n\nRules:\n- Never post without explicit user confirmation\n- Always show a preview: text, facets summary, image count, thread context\n- Bluesky has no character limit on posts, but shorter posts (under 300 chars) perform better\n- Max 4 images per post, each under 1MB — recommend stripping EXIF metadata\n- For threads: create each post sequentially, threading parent/root refs correctly\n- Language tags: include `langs` array with BCP-47 codes when the user specifies language\n\nBluesky culture notes:\n- More conversational and less performative than Instagram/Twitter\n- Alt text on images is strongly valued by the community\n- Hashtags exist but aren't as central — good content speaks for itself\n- Quote posts are common for commentary; use them for adding context\n- The community appreciates authenticity over polish",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "read_workspace_file",
+        "description": "Read a file from the workspace (for accessing images prepared by other agents)."
+      },
+      {
+        "name": "list_workspace_agents",
+        "description": "List other agents in the workspace for coordination."
+      }
+    ],
+    "skills": [
+      "bluesky-publishing",
+      "at-protocol",
+      "social-media",
+      "rich-text-formatting",
+      "thread-creation",
+      "content-writing"
+    ],
+    "model": "claude-haiku-4-5-20251001",
+    "temperature": 0.4,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {}
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-02-10T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Creativia",
+      "order": "Narrativales",
+      "species": "bluesky_publisher"
+    },
+    "created": "2026-02-10",
+    "author": "Fermi Team",
+    "description": "Publishes posts, threads, and image posts to Bluesky via the AT Protocol. Handles rich text facets (mentions, links, hashtags), image blob uploads, reply threading, quote posts, and website card embeds. Requires a Bluesky app password for authentication.",
+    "tags": [
+      "creative",
+      "social-media",
+      "bluesky",
+      "at-protocol",
+      "publishing",
+      "threading"
+    ],
+    "sample_queries": [
+      "Post this to Bluesky: Just shipped our new feature! Check it out at example.com",
+      "Create a 4-post thread breaking down our quarterly results with charts",
+      "Quote-post this skeet with our commentary on the announcement",
+      "Draft 3 post options for announcing our open-source release",
+      "Post this image with alt text describing the architecture diagram"
+    ],
+    "valence": {
+      "primary_affect": "connection",
+      "arousal": 0.5,
+      "valence": 0.7,
+      "personality_traits": [
+        "concise",
+        "social",
+        "reliable"
+      ]
+    }
+  },
+  "accepts": [
+    "content",
+    "image"
+  ],
+  "produces": [
+    "published-post"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": []
+  },
+  "prompt_template": "Post to Bluesky: {{your post content}}",
+  "requires_secrets": [
+    {
+      "name": "bluesky_handle",
+      "label": "Bluesky Handle",
+      "description": "Your Bluesky handle (e.g. user.bsky.social)",
+      "is_required": true
+    },
+    {
+      "name": "bluesky_app_password",
+      "label": "Bluesky App Password",
+      "description": "App-specific password from Bluesky settings",
+      "is_required": true
+    }
+  ]
+}

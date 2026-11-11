@@ -7,9 +7,9 @@
 //! | 0 | `validate`: pure; no connection is acquired before it |
 //! | 1 | `BEGIN ISOLATION LEVEL READ COMMITTED` |
 //! | 2 | idempotency lookup in `ledger.command_dedup` (replay or `IdempotencyMismatch`) |
-//! | 3 | `ledger.lock_streams(W, R)` |
-//! | 4 | fold: nothing in M1 (the probe decides from heads alone) |
-//! | 5 | `decide`, then the expected-version check against the locked heads |
+//! | 3 | `route` (immutable facts the sets depend on), then `ledger.lock_streams(W, R)` |
+//! | 4 | `fold`: the command reads the locked streams' events on this connection |
+//! | 5 | `decide` (synchronous, SUB-06), then the expected-version check |
 //! | 6a/6b | new stream rows / head compare-and-swap |
 //! | 7 | artifacts, `ON CONFLICT (sha) DO NOTHING`, citing pre-allocated event positions |
 //! | 8 | events |
@@ -29,7 +29,7 @@
 
 use crate::boot::Ledger;
 use crate::command::{Command, Dispatched, Heads, Recorded, StreamAppend};
-use crate::ctx::CommandCtx;
+use crate::ctx::{CommandCtx, PLATFORM_TENANT};
 use crate::error::{DispatchError, Rejection};
 use crate::fault::FaultPoint;
 use crate::projection::{ProjTx, apply_inline};
@@ -148,8 +148,9 @@ impl Ledger {
         self.reached(FaultPoint::AfterDedup)?;
 
         // Step 3.
-        let write_set = cmd.write_set();
-        let read_set = cmd.read_set();
+        let route = cmd.route(&mut *conn).await?;
+        let write_set = cmd.write_set(&route);
+        let read_set = cmd.read_set(&route);
         let rows = sqlx::query("SELECT stream_id, head FROM ledger.lock_streams($1, $2)")
             .bind(&write_set)
             .bind(&read_set)
@@ -162,10 +163,12 @@ impl Ledger {
             heads.0.insert(id, to_u64(head)?);
         }
         self.reached(FaultPoint::AfterLock)?;
-        check_tenancy(&mut *conn, &heads, ctx).await?;
+        check_tenancy(&mut *conn, &heads, &write_set, ctx).await?;
 
-        // Step 4 (fold) has nothing to read in M1. Step 5.
-        let appends = cmd.decide(&heads, ctx)?;
+        // Step 4.
+        let facts = cmd.fold(&mut *conn, &route, ctx).await?;
+        // Step 5.
+        let appends = cmd.decide(&heads, &facts, ctx)?;
         let writable: BTreeSet<&str> = write_set.iter().map(String::as_str).collect();
         for a in &appends {
             if !writable.contains(a.stream_id.as_str()) {
@@ -261,6 +264,10 @@ impl Ledger {
                 event_type: e.def.event_type,
                 payload: e.payload.clone(),
                 payload_sha: e.payload_sha.clone(),
+                // Every appended stream is the caller's tenant: new streams are created
+                // with it (step 6a) and check_tenancy refused any other.
+                tenant: ctx.tenant.clone(),
+                actor: ctx.actor.id.clone(),
             });
         }
         self.reached(FaultPoint::AfterEvents)?;
@@ -274,7 +281,7 @@ impl Ledger {
         }
         self.reached(FaultPoint::AfterProjections)?;
 
-        // Step 10: no provenance writes in M1. Step 11.
+        // Step 10: no provenance writes until M3. Step 11.
         for (_, e, _, pos) in &planned {
             for job in &e.outbox {
                 sqlx::query(
@@ -293,7 +300,7 @@ impl Ledger {
         self.reached(FaultPoint::AfterOutbox)?;
 
         // Step 12.
-        let output = cmd.output(&recorded)?;
+        let output = cmd.output(&recorded, &facts)?;
         if let Some(k) = keyed {
             let result = serde_json::to_value(&output).map_err(|e| {
                 DispatchError::Integrity(format!("{} output does not serialise: {e}", C::TYPE))
@@ -420,26 +427,35 @@ async fn fetch_dedup(
     }
 }
 
-/// A command may only touch streams of its own tenant.
+/// A command may only touch streams of its own tenant. The one exception is reading (never
+/// writing) a platform policy stream: platform policies are the defaults every tenant's
+/// commands resolve to (ADR-0008 §4 `PLATFORM_TENANT`; target-system-design §11.2).
 async fn check_tenancy(
     conn: &mut PgConnection,
     heads: &Heads,
+    write_set: &[String],
     ctx: &CommandCtx,
 ) -> Result<(), DispatchError> {
     if heads.0.is_empty() {
         return Ok(());
     }
     let ids: Vec<&str> = heads.0.keys().map(String::as_str).collect();
-    let rows =
-        sqlx::query("SELECT stream_id, tenant_id FROM ledger.streams WHERE stream_id = ANY($1)")
-            .bind(&ids)
-            .fetch_all(&mut *conn)
-            .await?;
+    let rows = sqlx::query(
+        "SELECT stream_id, kind, tenant_id FROM ledger.streams WHERE stream_id = ANY($1)",
+    )
+    .bind(&ids)
+    .fetch_all(&mut *conn)
+    .await?;
     for r in rows {
         let tenant: String = r.try_get("tenant_id")?;
-        if tenant != ctx.tenant {
+        let stream: String = r.try_get("stream_id")?;
+        let kind: String = r.try_get("kind")?;
+        let platform_read = tenant == PLATFORM_TENANT
+            && kind == crate::policy::KIND
+            && !write_set.contains(&stream);
+        if tenant != ctx.tenant && !platform_read {
             return Err(DispatchError::Rejected(Rejection::TenantMismatch {
-                stream: r.try_get("stream_id")?,
+                stream,
             }));
         }
     }

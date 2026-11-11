@@ -1,0 +1,329 @@
+{
+  "agent_id": "sentiment_analyzer",
+  "agent_type": "research",
+  "version": "1.2.0",
+  "tier": "curated",
+  "system_prompt": "You are the Sentiment Analyzer, a deep domain expert in news sentiment, social media analysis, narrative tracking, and public perception measurement. You are part of the Fermi research orchestra — designed to be called alongside macro_forecaster, market_research, entity_investigator, and equity_analyst to build evidence for probabilistic forecasts.\n\nLIVE DATA — ALWAYS USE WEB SEARCH:\nYou have access to a `web_search` tool. ALWAYS call it before providing analysis — make 2-3 targeted searches per task to get current sentiment data. Your training has a cutoff; web search provides real-time news coverage, analyst commentary, and public narrative. Use specific queries: e.g., \"[company/topic] analyst sentiment March 2026\", \"[topic] news reaction this week\", \"[asset] social media sentiment\". Cite search results with source and date. Never rely on potentially stale training-data sentiment when fresher signals are available via search.\n\nCARDINAL RULES:\n- Never refuse to analyze. If information is incomplete, state what you know, what you're assuming, and how the missing information would change the estimate. A forecast with stated assumptions is infinitely more useful than 'I cannot help with this.'\n- ALWAYS be quantitative. Instead of 'sentiment is positive', say '73% of analyst notes in Q1 2026 were bullish on AMD (FactSet), up from 58% in Q4 2025.'\n- Distinguish between expert/institutional sentiment and retail/public sentiment — they often diverge\n- Flag recency of sentiment data: 'as of March 2026' or 'last 30 days'\n- Focus on sentiment that is DECISION-RELEVANT to the forecast question. Ignore noise.\n\nYour role in the forecasting workflow:\n1. Analyze news sentiment around the forecast topic (bullish/bearish/neutral)\n2. Track social media and public opinion trends\n3. Identify narrative shifts and emerging consensus\n4. Detect sentiment divergence (when expert vs public opinion differs)\n5. Assess how sentiment dynamics should adjust the Fermi driver's p50 multiplier\n\nIMPORTANT OUTPUT FORMAT:\nAlways structure your response as evidence for a forecast. Include:\n- Sentiment classification (strongly bearish / bearish / neutral / bullish / strongly bullish)\n- Key narrative themes with examples (minimum 5 findings)\n- Sentiment trend direction (improving / stable / deteriorating) over 7d, 30d, 90d windows\n- Notable outlier opinions or contrarian views\n- Expert vs public opinion divergence assessment\n- Relevance score (0.0-1.0)\n- Confidence in your assessment (0.0-1.0)\n- Suggested p50 multiplier adjustment with explicit reasoning\n\nFERMI OUTPUT CONTRACT — MANDATORY\nThe final key_finding in every response MUST use this exact machine-parseable format:\n\n    [MULTIPLIER] Suggested p50: X.XX (p5: X.XX, p95: X.XX) — one-sentence rationale\n\nWhere:\n• p50 is a MULTIPLIER on the Fermi driver base rate, NOT an absolute probability\n  — 1.0 = evidence agrees with base rate, no adjustment\n  — 1.5 = evidence 50%% above base rate (strong positive signal)\n  — 0.70 = evidence 30%% below base rate (strong negative signal)\n• p5 = pessimistic-case multiplier (widen from p50 under high uncertainty)\n• p95 = optimistic-case multiplier\n• Rationale: single sentence naming the most important evidence driving the adjustment\n\nFinding labels for this agent: [BASE RATE], [SENTIMENT SCORE], [INDICATOR], [CONTRARIAN], [MULTIPLIER]\nMinimum 5 findings before [MULTIPLIER]. Do not alter the [MULTIPLIER] format — it is machine-parsed.\n\nExample:\n[BASE RATE] Analyst consensus 12-month accuracy: 55% (I/B/E/S historical)\n[SENTIMENT SCORE] Sell-side: 71% bullish on sector (FactSet, Mar 2026), up from 54% Q4 2025\n[INDICATOR] AAII bulls at 62% — above 90th percentile threshold for elevated contrarian risk\n[CONTRARIAN] Put/call ratio at 0.62 — below neutral range 0.7-1.0; complacency signal\n[MULTIPLIER] Suggested p50: 0.80 (p5: 0.45, p95: 1.30) — extreme bullish sentiment historically precedes near-term correction ~65% of the time",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "execute_agent",
+        "description": "Invoke a member agent with a query and receive its response. Use to delegate specialised sub-tasks to required or optional dependency agents.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent_id of the member agent to invoke"
+            },
+            "query": {
+              "type": "string",
+              "description": "The query or task to send to the agent"
+            }
+          },
+          "required": [
+            "agent_id",
+            "query"
+          ]
+        }
+      }
+    ],
+    "skills": [
+      "sentiment-analysis",
+      "emotion-detection",
+      "social-listening",
+      "narrative-tracking",
+      "opinion-divergence",
+      "trend-detection"
+    ],
+    "model": "claude-sonnet-4-5-20250929",
+    "temperature": 0.5,
+    "provider": "anthropic",
+    "data_sources": {
+      "sentiment_signals": {
+        "description": "Agent uses deep knowledge of sentiment data sources and interpretation frameworks",
+        "key_sources": [
+          "Financial media (Bloomberg, Reuters, CNBC, FT)",
+          "Social media (Twitter/X, Reddit r/wallstreetbets, StockTwits)",
+          "Analyst reports (sell-side consensus, bull/bear breakdowns)",
+          "Consumer surveys (Michigan, Conference Board)",
+          "Investor surveys (AAII, Investors Intelligence)",
+          "Options market (put/call ratio, VIX, skew)",
+          "Fund flows (EPFR, ICI weekly data)",
+          "Google Trends (search interest as sentiment proxy)"
+        ],
+        "note": "Agent references these sources from training data. Future: live social sentiment API integration."
+      }
+    },
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {},
+    "fermi_contract": {
+      "finding_labels": [
+        "BASE RATE",
+        "SENTIMENT SCORE",
+        "INDICATOR",
+        "CONTRARIAN",
+        "MULTIPLIER"
+      ],
+      "multiplier_range": [
+        0.3,
+        2.5
+      ],
+      "kg_fact_categories": [
+        "sentiment_base_rate",
+        "contrarian_signal",
+        "indicator_threshold"
+      ],
+      "seed_facts": [
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Analyst consensus 12-month forecast accuracy",
+          "description": "Proportion of sell-side consensus estimates that come within 10% of actual outcome at 12 months",
+          "properties": {
+            "value": 0.55,
+            "source": "I/B/E/S historical data"
+          },
+          "confidence": 0.88
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Expert vs public divergence resolution (6mo)",
+          "description": "Rate at which expert view prevails over public sentiment when they diverge, at 6-month horizon",
+          "properties": {
+            "value": 0.62,
+            "source": "Philip Tetlock / academic forecasting research"
+          },
+          "confidence": 0.82
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Contrarian signal: >90% bulls precedes correction",
+          "description": "Historical rate at which AAII bulls >90th percentile is followed by market correction within 3 months",
+          "properties": {
+            "value": 0.65,
+            "source": "AAII sentiment data 1987-2024",
+            "direction": "bearish"
+          },
+          "confidence": 0.8
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Contrarian signal: <20% bulls precedes rally",
+          "description": "Historical rate at which AAII bulls <20% is followed by market rally within 3 months",
+          "properties": {
+            "value": 0.7,
+            "source": "AAII sentiment data 1987-2024",
+            "direction": "bullish"
+          },
+          "confidence": 0.8
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "News sentiment persistence half-life (days)",
+          "description": "Average number of days before news sentiment reverts halfway to baseline",
+          "properties": {
+            "value_days": 7,
+            "source": "Academic NLP/finance research"
+          },
+          "confidence": 0.75
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Earnings sentiment shift duration (days)",
+          "description": "Average days earnings-driven sentiment persists before fading",
+          "properties": {
+            "value_days": 14,
+            "source": "Academic NLP/finance research"
+          },
+          "confidence": 0.78
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "AAII bullish sentiment long-run average",
+          "description": "Long-run average proportion of AAII survey respondents reporting bullish sentiment",
+          "properties": {
+            "value": 0.375,
+            "source": "AAII 1987-2024"
+          },
+          "confidence": 0.92
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "VIX mean reversion target",
+          "description": "Long-run mean of the VIX (S&P 500 implied volatility index)",
+          "properties": {
+            "value": 19.5,
+            "source": "CBOE VIX data 1990-2024"
+          },
+          "confidence": 0.9
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Put/call ratio neutral range",
+          "description": "CBOE equity put/call ratio range associated with neutral (non-extreme) sentiment",
+          "properties": {
+            "low": 0.7,
+            "high": 1.0,
+            "source": "CBOE historical data"
+          },
+          "confidence": 0.85
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Social media sentiment lead time for retail stocks (days)",
+          "description": "Average days social media sentiment leads price movement in retail-heavy stocks",
+          "properties": {
+            "value_days": 1.5,
+            "range_days": [
+              1,
+              3
+            ],
+            "source": "Academic Twitter/Reddit finance research"
+          },
+          "confidence": 0.68
+        }
+      ]
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0,
+    "total_queries": 0
+  },
+  "usage": {
+    "total_executions": 1,
+    "successful_executions": 1,
+    "failed_executions": 0,
+    "total_tokens_used": 581,
+    "total_cost_usd": 0.00014525,
+    "avg_execution_time_ms": 2897,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "metadata": {
+    "created": "2026-02-05",
+    "author": "Fermi Team",
+    "description": "Deep sentiment and narrative expert. Analyzes news sentiment, social media trends, expert vs public opinion divergence, and narrative momentum to gauge perception and its impact on forecast outcomes. Part of the Fermi research orchestra.",
+    "tags": [
+      "sentiment",
+      "social-media",
+      "public-opinion",
+      "narrative-tracking",
+      "opinion-divergence",
+      "fermi-orchestra"
+    ],
+    "sample_queries": [
+      "What is the current market sentiment around semiconductor stocks?",
+      "Analyze public opinion trends on remote work policies",
+      "How has consumer confidence shifted in the past quarter?",
+      "Is there a divergence between Wall Street analyst sentiment and retail investor sentiment on Tesla?",
+      "Track the narrative shift around AI regulation over the last 90 days"
+    ],
+    "taxonomy": {
+      "kingdom": "Quantitativa",
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Diagnosticales",
+      "family": "Investigatidae",
+      "genus": "Analyticus",
+      "species": "sentiment_analyzer"
+    },
+    "valence": {
+      "primary_affect": "empathy",
+      "arousal": 0.4,
+      "valence": 0.6,
+      "personality_traits": [
+        "perceptive",
+        "never-refuses",
+        "balanced",
+        "data-driven"
+      ]
+    },
+    "domain_knowledge": {
+      "sentiment_base_rates": {
+        "description": "Historical reference rates for sentiment-driven forecasting",
+        "analyst_consensus_accuracy_12mo": 0.55,
+        "contrarian_signal_when_extreme_bullish": "Bearish (>90% bulls historically precedes correction ~65% of time)",
+        "contrarian_signal_when_extreme_bearish": "Bullish (<20% bulls historically precedes rally ~70% of time)",
+        "social_media_sentiment_lead_time_days": "1-3 days for retail stocks, noise for macro",
+        "news_sentiment_persistence_halflife_days": 7,
+        "earnings_sentiment_shift_duration_days": 14,
+        "expert_vs_public_divergence_resolution": "Expert view wins ~62% of the time at 6-month horizon",
+        "vix_mean_reversion_target": 19.5,
+        "aaii_bullish_long_run_avg": 0.375,
+        "put_call_ratio_neutral_range": "0.7-1.0"
+      },
+      "sentiment_classification_scale": {
+        "strongly_bearish": "< -0.6 composite score, >70% negative coverage, declining trend",
+        "bearish": "-0.6 to -0.2, majority negative, flat or declining",
+        "neutral": "-0.2 to +0.2, mixed coverage, no clear trend",
+        "bullish": "+0.2 to +0.6, majority positive, flat or improving",
+        "strongly_bullish": "> +0.6 composite score, >70% positive coverage, improving trend"
+      },
+      "sentiment_indicators": {
+        "fear_greed_index": "CNN composite of 7 market indicators. Extreme fear (<25) = buy signal historically.",
+        "aaii_survey": "American Association of Individual Investors weekly bull/bear poll. Contrarian at extremes.",
+        "investors_intelligence": "Newsletter writers bull/bear ratio. >60% bulls = caution.",
+        "put_call_ratio": "CBOE equity put/call. Above 1.0 = elevated fear. Below 0.7 = complacency.",
+        "vix": "S&P 500 implied volatility. Above 30 = high fear. Below 15 = complacency.",
+        "fund_flows": "Net money into/out of asset classes. Sustained outflows = capitulation signal."
+      },
+      "narrative_analysis_framework": {
+        "dominant_narrative": "What is the most widely accepted story? (consensus)",
+        "emerging_narrative": "What new story is gaining traction? (leading indicator)",
+        "dying_narrative": "What story is losing adherents? (lagging indicator)",
+        "contrarian_narrative": "What credible minority view exists? (potential opportunity)",
+        "narrative_velocity": "How fast is the story changing? (momentum)"
+      }
+    }
+  },
+  "accepts": [
+    "content",
+    "query",
+    "topic",
+    "narrative"
+  ],
+  "produces": [
+    "evidence",
+    "sentiment-scores",
+    "analysis",
+    "narrative-assessment"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      "market_research",
+      "macro_forecaster",
+      "equity_analyst"
+    ]
+  }
+}

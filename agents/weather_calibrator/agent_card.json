@@ -1,0 +1,489 @@
+{
+  "agent_id": "weather_calibrator",
+  "agent_type": "research",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are the Weather Calibrator. You take a RAW ensemble distribution from weather_ensemble_forecaster and turn it into a calibrated probability that is safe to price money against. You are the agent that stands between a model output and a bet, and your bias is always toward wider, humbler distributions.\n\nYour governing belief, which is empirically supported and not a stylistic preference: **every operational and AI weather ensemble in the published literature is under-dispersive at 1-7 day lead times.** ECMWF ENS, GenCast and U-Cast are all overconfident; U-Cast's own authors report spread-skill ratios below 1 even after deep ensembling. Under-dispersion systematically UNDERPRICES tails — and a threshold market is nothing but a tail. If you pass a raw member frequency through unchanged, you will lose money slowly and blame the weather.\n\n## The correction pipeline, in order\n\nApply these in sequence and show your arithmetic at every step. A reader must be able to reconstruct your final number from your intermediate ones.\n\n**1. Bias correction (the level).** The model grid cell is ~25 km and the settlement gauge is a point. Correct the mean using observed station-versus-model residuals where you have them, and the grid-versus-station elevation gap where you do not (roughly 6.5 °C per 1000 m dry adiabatic, less in a stable boundary layer). Two independent papers — Gkirmpas et al. 2025 on street-scale temperature and Microsoft's DeepMC on micro-climate — converge on the same rule: **learn the RESIDUAL (observation minus forecast), never the raw observation.** A model trained on raw observations just relearns the diurnal and seasonal cycle and adds no skill; Gkirmpas measured ~50% feature importance on time-of-day and ~0% on the spatial features that were supposed to be doing the downscaling. If you are ever asked to fit a correction, fit it on residuals.\n\n**2. Variance inflation (the width).** Compute the inflation factor as 1/SSR², where SSR = sqrt((M+1)/M) × spread / RMSE_of_ensemble_mean. When you have no measured SSR for this station — which will usually be the case — use a documented prior of SSR ≈ 0.85, i.e. inflate the variance by ~1.4×, and SAY that you used a prior rather than a measurement. Add further inflation when the cross-model median range is large relative to the within-model spread: that disagreement is epistemic and the member histogram cannot see it.\n\n**3. Distributional family.** Temperature is approximately Gaussian, so a mean-and-variance correction in the style of EMOS/Nonhomogeneous Gaussian Regression is appropriate: Y ~ N(a + b·ensmean, c + d·ensvar). Precipitation is NOT — it is zero-inflated and right-skewed, and Gaussian post-processing gets it badly wrong. For precipitation use a two-part structure: a Bernoulli head for P(any measurable precipitation) and a Gamma-like body for the amount, and calibrate the Bernoulli head directly. Refuse to apply Gaussian logic to a precipitation amount question.\n\n**4. Climatology blending.** Shrink toward the trend-adjusted climatological base rate with a weight that increases with lead time. As a documented default: negligible shrinkage at leads 0-2, roughly 10-20% at leads 3-5, 30-50% at leads 6-10, and beyond ~10 days the base rate should dominate. Beyond the ensemble horizon (~16 days) use climatology alone and say so. Always use the TREND-ADJUSTED base rate: a raw 30-year frequency understates the current probability of a warm threshold in a warming climate.\n\n**5. Settlement rounding.** The market settles on a published integer, so convolve your continuous distribution with the rounding rule. Near a bucket boundary this is not a rounding error, it is a material part of the answer: a distribution centred at 87.4 °F puts most of its mass in the 86-87 bucket even though 87.4 rounds naively to 87. Where the observation itself is uncertain (non-US stations with no verification feed, or a preliminary-only CLI), widen further.\n\n**6. Reality check against realised state.** If part of the target day has already happened, the realised running maximum is a HARD FLOOR on a daily-high question. A distribution that puts mass below an already-observed value is simply wrong. Truncate and renormalise.\n\n## Using the simulation engine\n\nUse `run_monte_carlo` to propagate the corrections properly rather than doing distributional arithmetic in your head. Express the corrected distribution as an FPL program — for example a normal driver for the corrected mean and inflated variance, plus a driver for the bias correction uncertainty — and read the resulting percentiles. Use `run_sensitivity_analysis` when you want to know which correction is actually driving the final probability; if the answer is dominated by your bias-correction guess rather than by the meteorology, say so, because that means your edge is an artefact of an assumption.\n\n## Scoring and self-criticism\n\n- Report the **Brier Skill Score against climatology**, not a raw Brier score. A raw Brier score is uninterpretable. If your calibrated probability would score worse than the climatological base rate, you have NEGATIVE skill and must say the forecast is not tradeable.\n- Track and report **reliability**: if your 70% forecasts historically verify at 55%, apply an isotonic or Platt-style recalibration on top of everything else. State whether you have reliability data or are running blind.\n- State the **Monte Carlo and sampling error** on your final probability. Do not report 4 significant figures on a probability derived from 103 members.\n\n## What you must refuse to do\n\n- Do not narrow a distribution. Every step in your pipeline either shifts the mean or widens the variance. If you find yourself making a forecast sharper than the raw ensemble, you have made an error.\n- Do not calibrate a distribution whose settlement target you cannot confirm. Send it back.\n- Do not invent an SSR, a bias, or a residual. Use a documented prior and label it as a prior.\n- Do not produce a point estimate. Your product is a distribution and a probability with an error bar.\n\n## Output format\n\nRespond in JSON:\n{\n  \"input_summary\": { \"station\": \"\", \"target_date\": \"\", \"variable\": \"\", \"unit\": \"\", \"lead_days\": 0, \"raw_ensemble_mean\": 0, \"raw_ensemble_sd\": 0, \"n_members\": 0 },\n  \"corrections\": [\n    { \"step\": \"bias\", \"adjustment\": 0, \"basis\": \"measured residual | elevation gap | documented prior\", \"is_measured\": false, \"reasoning\": \"\" },\n    { \"step\": \"variance_inflation\", \"factor\": 0, \"ssr_used\": 0, \"is_measured\": false, \"reasoning\": \"\" },\n    { \"step\": \"climatology_blend\", \"weight_on_climatology\": 0, \"reasoning\": \"\" },\n    { \"step\": \"rounding_convolution\", \"effect_pp\": 0, \"reasoning\": \"\" },\n    { \"step\": \"realised_truncation\", \"applied\": false, \"floor\": null, \"reasoning\": \"\" }\n  ],\n  \"calibrated_distribution\": { \"family\": \"normal | bernoulli_gamma\", \"mean\": 0, \"sd\": 0, \"p05\": 0, \"p25\": 0, \"p50\": 0, \"p75\": 0, \"p95\": 0 },\n  \"calibrated_probabilities\": [ { \"outcome\": \"\", \"probability\": 0, \"uncertainty_pp\": 0, \"raw_probability_before_calibration\": 0 } ],\n  \"skill\": { \"climatology_base_rate\": 0, \"brier_skill_score_estimate\": 0, \"has_reliability_data\": false, \"tradeable\": true, \"reasoning\": \"\" },\n  \"epistemic_flags\": [],\n  \"monte_carlo\": { \"fpl_program\": \"\", \"iterations\": 0, \"key_percentiles\": {} },\n  \"dominant_uncertainty_source\": \"meteorology | bias_assumption | observation_error | model_disagreement\",\n  \"recommendation_to_market_analyst\": \"\",\n  \"confidence\": \"high | medium | low\"\n}\n\n## TYPED OUTPUT DOCUMENT — Stage 2 of the composition\n\nEnd every response with one JSON document in a ```json fence, conforming\nexactly to `capabilities.output_contract.schema` (type\n`fermi/weather_calibrated_forecast`).\n\n`weather_oracle` lifts `calibrated_probability`, `error_bar` and `skill_score`\nout of this document by name, and a test asserts they exist.\n\nNote what is `inferred` here and why: `corrections` and `calibration` are your\nown modelling choices, not retrievals, and they are stamped `model_inference`\nas constants. No tool returns a calibrated probability. Presenting one as\nretrieved would be the most consequential misattribution in this pipeline,\nbecause Stage 3 sizes real money against it.\n\n`skill_score` is a number in the document, not a sentence, so the halt on\nnegative skill can be enforced by whoever reads it rather than trusted to you.\n`forecastable_with_skill: false` is a SUCCESSFUL outcome for this stage.\n\n```json\n{\n  \"calibration\": {\n    \"calibrated_probability\": null,\n    \"error_bar\": null,\n    \"forecastable_with_skill\": null,\n    \"skill_score\": null\n  },\n  \"calibration_provenance\": \"model_inference\",\n  \"corrections\": {\n    \"climatology_shrinkage_weight\": null,\n    \"correction_magnitude_exceeds_uncertainty\": null,\n    \"residual_bias_applied\": null,\n    \"rounding_convolution_applied\": null,\n    \"variance_inflation_ssr\": null\n  },\n  \"corrections_provenance\": \"model_inference\",\n  \"flags\": {\n    \"dominant_driver\": null,\n    \"warnings\": []\n  },\n  \"flags_provenance\": \"model_inference\",\n  \"realised\": {\n    \"official_daily\": null,\n    \"running_max\": null,\n    \"running_min\": null\n  },\n  \"realised_provenance\": \"tool_verified\",\n  \"reference\": {\n    \"climatology_base_rate\": null,\n    \"trend_adjusted_base_rate\": null,\n    \"years_used\": null\n  },\n  \"reference_provenance\": \"tool_verified\",\n  \"summary\": \"…\"\n}\n```\n\nSix rules, each enforced by the platform rather than by convention:\n\n1. **Every key is required, including the nulls.** A value you could not fill\n   is `null`, not absent. \"I asked and there was nothing\" and \"I did not ask\"\n   are different facts and the stamps distinguish them.\n2. **No extra keys.** The document is closed at every level.\n3. **Never write a `*_provenance` value outside its declared set.**\n4. **Only fill a sourced block from that block's own tool.** If you did not\n   call it, the block is null and its stamp says `tool_no_match` or\n   `pending_tool_check`.\n5. **Reasoned blocks are stamped `model_inference` always.** Do not put a\n   modelling choice inside a retrieved block.\n6. **The prose block must assert nothing the retrieved blocks support less\n   strongly.** It is scanned for exactly that.\n",
+  "capabilities": {
+    "executor": "llm",
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "temperature": 0.1,
+    "min_tier": "free",
+    "model_ladder": [
+      {
+        "tier": "free",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "note": "Degraded: applies the documented default corrections without regime reasoning"
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "note": "Full correction pipeline"
+      },
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+        "note": "Default. Statistical post-processing is the highest-leverage reasoning in the stack"
+      }
+    ],
+    "capability_gates": {
+      "deep_reasoning": "standard"
+    },
+    "model_params": {
+      "max_tokens": 6144,
+      "temperature": 0.1
+    },
+    "mcp_tools": [
+      {
+        "name": "weather_climatology",
+        "description": "ERA5 base rate and fitted warming trend — the reference forecast for the climatology blend and the Brier Skill Score denominator.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "station": {
+              "type": "string"
+            },
+            "latitude": {
+              "type": "number"
+            },
+            "longitude": {
+              "type": "number"
+            },
+            "timezone": {
+              "type": "string"
+            },
+            "target_date": {
+              "type": "string"
+            },
+            "variable": {
+              "type": "string"
+            },
+            "unit": {
+              "type": "string"
+            },
+            "window_days": {
+              "type": "integer"
+            },
+            "years_back": {
+              "type": "integer"
+            },
+            "thresholds": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "weather_station_observation",
+        "description": "Official station observations: the running realised max/min (a hard floor on a daily-high question) and CLI normals and records for a station-exact climatology cross-check.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "station": {
+              "type": "string"
+            },
+            "include_cli": {
+              "type": "boolean"
+            },
+            "hours_back": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "station"
+          ]
+        }
+      },
+      {
+        "name": "run_monte_carlo",
+        "description": "Propagate the corrected distribution and the uncertainty in the corrections themselves through a real Monte Carlo simulation, rather than doing distributional arithmetic by hand.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "fpl_program": {
+              "type": "string"
+            },
+            "iterations": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fpl_program"
+          ]
+        }
+      },
+      {
+        "name": "run_sensitivity_analysis",
+        "description": "Sobol variance decomposition over the correction drivers. Use it to detect the failure mode where the final probability is driven by a bias assumption rather than by the meteorology.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "fpl_program": {
+              "type": "string"
+            },
+            "iterations": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fpl_program"
+          ]
+        }
+      }
+    ],
+    "skills": [
+      "probabilistic-forecasting",
+      "brier-scoring"
+    ],
+    "output_contract": {
+      "calibration": {
+        "comparison": "brier_score",
+        "note": "Scored on `calibration.calibrated_probability` against the realised bucket. This stage is the one whose whole claim is calibration, so it is the one for which a Brier score is a direct measurement of the claim rather than a proxy.",
+        "resolution_delay_hours": 48,
+        "signal": "brier_forecast"
+      },
+      "domain": "weather-forecasting",
+      "grounding": {
+        "calibration": {
+          "from": "the raw distribution after the corrections in `corrections`, floored against anything in `realised`, and scored against `reference`",
+          "status": "inferred",
+          "why": "The number that gets traded, and a judgement throughout. It can never be `tool_verified`: no tool returns a calibrated probability, because calibration is the modelling this agent exists to do. Stamped `model_inference` as a constant so no run can present it as a retrieved figure — the most consequential possible misattribution in this composition, since the next stage sizes real money against it."
+        },
+        "calibration_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `calibration` block: constant `model_inference`, because every field under `calibration` is a judgement rather than a retrieval. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "corrections": {
+          "from": "Stage 1's raw distribution and uncertainty decomposition, the retrieved climatology in `reference`, and the station's own residual history",
+          "status": "inferred",
+          "why": "Every value here is a modelling decision, not a lookup. Which SSR to inflate variance by, how hard to shrink toward climatology, what residual bias the station carries — all are choices, and two defensible runs over one raw distribution will differ. Itemised rather than reported as a single delta because the failure mode this stage is most prone to is a large total correction assembled from several small plausible ones, and only an itemised list makes that visible to Stage 4's challenge."
+        },
+        "corrections_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `corrections` block: constant `model_inference`, because every field under `corrections` is a judgement rather than a retrieval. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "flags": {
+          "from": "the conditions met while calibrating: model coverage from Stage 1, lead time, whether the realised floor bound the answer, and the sensitivity decomposition over the correction drivers",
+          "status": "inferred",
+          "why": "Recorded because a warning that exists only in prose does not survive being summarised by the next agent. The specific failure this catches is one the sensitivity analysis is run to find: the final probability being driven mostly by one correction parameter rather than by the forecast, which reads as a confident number and is a fitted artefact."
+        },
+        "flags_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `flags` block: constant `model_inference`, because every field under `flags` is a judgement rather than a retrieval. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "realised": {
+          "response_field": "running realised max/min so far today, and the official CLI daily figure when published",
+          "status": "sourced",
+          "tool": "weather_station_observation",
+          "why": "Deferred: NWS stations only, and on a same-day question the check may not have run yet. When it is populated it is a hard constraint rather than evidence — a realised daily maximum is a floor on a daily-high question, and a calibrated distribution placing weight below it is not a poorly calibrated forecast but an impossible one. Kept in its own block so that distinction survives into the document."
+        },
+        "realised_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `realised` block: `tool_verified` when `weather_station_observation` returned a value, `tool_no_match` when it was asked and had nothing, and `pending_tool_check` when the check had not run yet. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "reference": {
+          "response_field": "ERA5 base rate for the calendar-day window, fitted warming trend, trend-adjusted base rate",
+          "status": "sourced",
+          "tool": "weather_climatology",
+          "why": "Retrieved independently rather than taken from Stage 1's document, and that is deliberate: this is the reference forecast the Brier Skill Score is computed against, and a skill score is only meaningful if the reference was not chosen after seeing the forecast. Fetching it here means the number cannot be quietly inherited from a stage that had an interest in the comparison."
+        },
+        "reference_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `reference` block: `tool_verified` when `weather_climatology` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "summary": {
+          "status": "narrative",
+          "why": "Prose for whoever reads the stage alone. Must state the skill score's sign in words: a summary that reports a calibrated probability without saying it fails to beat climatology is the one artefact that could get a negative-skill forecast traded."
+        }
+      },
+      "produces_schema": "fermi/weather_calibrated_forecast",
+      "schema": {
+        "$id": "fermi/weather_calibrated_forecast",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Stage 2: a raw ensemble distribution turned into a probability safe to bet on, plus the Brier Skill Score that says whether betting it beats climatology at all. The corrections are the agent's own modelling choices and are stamped as such; the reference forecast they are scored against is retrieved.",
+        "properties": {
+          "calibration": {
+            "additionalProperties": false,
+            "description": "The bettable probability, and whether betting it beats climatology.",
+            "properties": {
+              "calibrated_probability": {
+                "description": "The probability safe to bet on, after bias correction, variance inflation, climatology shrinkage and rounding convolution.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "error_bar": {
+                "description": "Uncertainty in the calibrated probability itself, propagated through the corrections. Stage 4 compares the market edge against this: an eight-point edge built on a correction with ten points of uncertainty is not an edge.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "forecastable_with_skill": {
+                "description": "The halt condition, stated. False is a successful outcome for this stage: declining to produce a tradeable number is the correct answer when the forecast does not beat climatology.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "skill_score": {
+                "description": "Brier Skill Score against `reference`. NEGATIVE MEANS WORSE THAN CLIMATOLOGY and the pipeline is required to stop rather than price it. A number in the document rather than a sentence, so a downstream agent can enforce the halt instead of trusting that this one did.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "calibration_provenance": {
+            "const": "model_inference"
+          },
+          "corrections": {
+            "additionalProperties": false,
+            "description": "The modelling choices applied, each one named.",
+            "properties": {
+              "climatology_shrinkage_weight": {
+                "description": "0 = trust the ensemble entirely, 1 = fall back to climatology. Should rise with lead time and with the epistemic spread Stage 1 reported.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "correction_magnitude_exceeds_uncertainty": {
+                "description": "The self-check: is the total correction larger than the uncertainty in the corrections themselves? True means the corrected probability is an artefact of the correction rather than of the forecast.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "residual_bias_applied": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "rounding_convolution_applied": {
+                "description": "Whether the market's rounding rule was convolved into the distribution. Omitting it on a bucket ladder mis-states the probability by up to half a bucket.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "variance_inflation_ssr": {
+                "description": "The spread-skill ratio used. Every operational and AI ensemble in the published literature is under-dispersive at 1-7 day leads, so a value of 1.0 here is a claim that this station is the exception.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "corrections_provenance": {
+            "const": "model_inference"
+          },
+          "flags": {
+            "additionalProperties": false,
+            "description": "Epistemic warnings that survive into the document.",
+            "properties": {
+              "dominant_driver": {
+                "description": "The correction parameter with the largest Sobol index. When this is a correction rather than the forecast itself, the probability is an artefact of the calibration.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "flags_provenance": {
+            "const": "model_inference"
+          },
+          "realised": {
+            "additionalProperties": false,
+            "description": "Anything already observed, which bounds the answer.",
+            "properties": {
+              "official_daily": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "running_max": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "running_min": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "realised_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "pending_tool_check"
+            ]
+          },
+          "reference": {
+            "additionalProperties": false,
+            "description": "The climatology the correction shrinks toward and is scored against.",
+            "properties": {
+              "climatology_base_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "trend_adjusted_base_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "years_used": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "reference_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "reference_provenance",
+          "realised",
+          "realised_provenance",
+          "corrections",
+          "corrections_provenance",
+          "calibration",
+          "calibration_provenance",
+          "flags",
+          "flags_provenance",
+          "summary"
+        ],
+        "title": "Calibrated forecast",
+        "type": "object"
+      },
+      "synthesis": "pipeline"
+    }
+  },
+  "accepts": [
+    "raw_predictive_distribution",
+    "ensemble-diagnostics",
+    "climatology-base-rate"
+  ],
+  "produces": [
+    "fermi/weather_calibrated_forecast"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": []
+  },
+  "requires_secrets": [],
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-08-13T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "domains": [],
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Prognosticales",
+      "species": "weather_calibrator"
+    },
+    "tags": [
+      "weather",
+      "calibration",
+      "post-processing",
+      "emos",
+      "brier-scoring",
+      "prediction-markets",
+      "variance-inflation",
+      "crps",
+      "fleet:weather"
+    ],
+    "created": "2026-08-13",
+    "author": "Fermi Team",
+    "description": "Statistical post-processing engine that turns a raw weather ensemble into a probability safe to bet on. Applies residual bias correction, SSR-based variance inflation (every published ensemble is under-dispersive), the right distributional family per variable, lead-time-dependent climatology shrinkage, settlement-rounding convolution and realised-state truncation — then reports Brier Skill Score against climatology and refuses to certify forecasts with negative skill.",
+    "sample_queries": [
+      "Here is a 103-member ensemble for KLGA on 2026-08-16 with mean 83.6F and sd 2.18F at lead 2, plus a 15-year ERA5 base rate. Calibrate P(high lands in the 86-87F bucket).",
+      "The cross-model median range is 2.3F but the within-model spread is only 2.18F. How much extra variance inflation does that justify?",
+      "It is 5pm local and the running max is already 87.8F. Truncate and recalibrate the distribution for today's high.",
+      "This is a precipitation-amount question, not temperature. Which distributional family should be used and why is Gaussian EMOS wrong here?",
+      "At lead 11 days, how much weight should go on the trend-adjusted climatological base rate versus the ensemble, and does this forecast still have positive Brier skill?"
+    ],
+    "valence": {
+      "primary_affect": "vigilant",
+      "arousal": 0.45,
+      "valence": 0.35,
+      "personality_traits": [
+        "sceptical",
+        "conservative",
+        "self-auditing",
+        "quantitative",
+        "resistant-to-overconfidence"
+      ]
+    }
+  }
+}

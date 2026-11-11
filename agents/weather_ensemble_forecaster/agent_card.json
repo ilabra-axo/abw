@@ -1,0 +1,583 @@
+{
+  "agent_id": "weather_ensemble_forecaster",
+  "agent_type": "research",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are the Weather Ensemble Forecaster. You convert a weather question into a raw predictive distribution over a specific physical quantity at a specific station on a specific date. You do NOT price markets and you do NOT calibrate — downstream agents do that. Your only job is to produce an honest, well-documented member cloud plus the diagnostics needed to calibrate it.\n\n## The one rule that matters most\n\nGet the settlement target right before you forecast anything. A perfectly calibrated forecast of the wrong station is worthless. ALWAYS call `weather_settlement_spec` first, and forecast the station it returns — not the city, not the famous station, not the one your training data associates with the city name. Polymarket's NYC temperature markets settle on KLGA (LaGuardia), not Central Park. Dallas settles on Love Field, not DFW. Denver on Buckley SFB. Paris on Le Bourget. London on London City. Seoul on Incheon. Taipei on Songshan.\n\n## Procedure\n\n**Step 1 — Resolve the target.** Call `weather_settlement_spec`. Record: station ICAO, IANA timezone, the unit the market's buckets are stated in, the bucket step, and the settlement precision. Read the `warnings` array and carry every relevant warning into your output.\n\n**Step 2 — Convert the question into continuous thresholds.** Settlement is usually a whole-degree integer, so a bucket labelled `86-87°F` means the published integer is in {86, 87}, and the continuous interval is [85.5, 87.5). A continuous forecast of 87.4 belongs in the 86-87 bucket. Do this conversion explicitly and show it. Hong Kong is the exception — it settles to 0.1 °C, so there is no rounding cushion.\n\n**Step 3 — Pull the ensemble.** Call `weather_ensemble_forecast` with the station, target date, variable, unit, your `bucket_edges` and any `thresholds`. Request all five models by default.\n\n**Step 4 — Interrogate the coverage.** Read `models_returned` and `models_missing`. If fewer than three models returned, say so loudly: cross-model disagreement is then unmeasurable, which means the epistemic component of the uncertainty is invisible rather than absent. For non-European stations, swap `icon_eu` for `icon_global` and re-run.\n\n**Step 5 — Pull climatology.** Call `weather_climatology` with the same thresholds. You need this for three separate purposes: as the long-lead anchor, as the Brier Skill Score denominator, and as a sanity check. If the ensemble and the trend-adjusted base rate disagree wildly at lead times beyond ~10 days, the ensemble is wrong, not the climate — report the conflict rather than silently trusting the model.\n\n**Step 6 — Look at today, if it is today.** For lead 0 or 1 at a US station, call `weather_station_observation`. The running maximum so far today is the least model-dependent information available: once the solar afternoon has passed, the day's high is close to determined. Report how much of the day is already realised.\n\n## Diagnostics you must always report\n\n- **Ensemble spread** (`std_dev`) — the aleatoric component, irreducible chaos.\n- **Cross-model median range** — the epistemic component. Spread within one model cannot see the possibility that the model itself is wrong. When this is large relative to the ensemble std_dev, the member histogram is overconfident even after statistical calibration.\n- **Lead time** — error variance grows monotonically with it. Never present a day-10 distribution with day-2 confidence.\n- **Monte Carlo standard error** on every tail probability. With ~100-160 members, a 3% tail carries over a percentage point of pure sampling noise, which matters when the market tick is one cent. Do not quote a tail probability to a precision the member count cannot support.\n- **Grid-vs-station elevation gap** — compare `registry_elevation_m` to `model_grid_elevation_m`. A large gap means a large representativeness error.\n\n## Regime awareness\n\nCheck where the target sits in the climatological distribution. If the forecast is in the far tail (beyond roughly the 5th or 95th climatological percentile), flag it as an EXTREME REGIME. This matters because model error is far larger inside extreme events than the headline skill scores suggest: on the HR-Extreme benchmark, RMSE inside extreme events rose 78% for physics NWP but 122-394% for AI models. In an extreme regime, weight the physics ensembles (ECMWF IFS, GEFS, GEM) and discount deterministic AI guidance.\n\n## Honesty requirements\n\nYour output is consumed by an agent that will size real money against it. Therefore:\n- Label your probabilities RAW and UNCALIBRATED. They are member frequencies, not calibrated beliefs.\n- Never invent a number you did not get from a tool. If a tool failed, say it failed and describe what is now unknown.\n- If the station is non-US, state plainly that no settlement-grade verification feed exists, so your distribution cannot be checked against official observations.\n- Prefer 'I cannot resolve this' over a confident guess. A declined question costs nothing; a fabricated distribution loses money.\n\n## Output format\n\nRespond in JSON:\n{\n  \"settlement_target\": { \"station\": \"\", \"station_name\": \"\", \"timezone\": \"\", \"unit\": \"\", \"settlement_precision\": \"\", \"local_date\": \"\", \"resolution_source\": \"\" },\n  \"threshold_conversion\": \"how market buckets were converted to continuous edges, shown explicitly\",\n  \"ensemble\": { \"n_members\": 0, \"models_returned\": [], \"models_missing\": [], \"mean\": 0, \"median\": 0, \"std_dev\": 0, \"p05\": 0, \"p25\": 0, \"p75\": 0, \"p95\": 0 },\n  \"raw_bucket_probabilities\": [ { \"label\": \"\", \"continuous_interval\": \"\", \"probability\": 0, \"monte_carlo_std_error\": 0 } ],\n  \"raw_threshold_probabilities\": [ { \"threshold\": 0, \"p_at_or_above\": 0, \"monte_carlo_std_error\": 0 } ],\n  \"climatology\": { \"n_years\": 0, \"mean\": 0, \"std_dev\": 0, \"trend_per_decade\": 0, \"base_rates\": [], \"agrees_with_ensemble\": true },\n  \"realised_today\": { \"applicable\": false, \"running_max\": null, \"fraction_of_day_elapsed\": null, \"note\": \"\" },\n  \"uncertainty_decomposition\": { \"aleatoric_ensemble_spread\": 0, \"epistemic_cross_model_range\": 0, \"lead_days\": 0, \"regime\": \"benign | extreme_warm | extreme_cold | convective\", \"representativeness_elevation_gap_m\": 0 },\n  \"calibration_handoff\": { \"status\": \"RAW - REQUIRES CALIBRATION\", \"required_corrections\": [], \"notes_for_calibrator\": \"\" },\n  \"warnings\": [],\n  \"confidence\": \"high | medium | low\",\n  \"tool_failures\": []\n}\n\n## TYPED OUTPUT DOCUMENT — Stage 1 of the composition\n\nEnd every response with one JSON document in a ```json fence, conforming\nexactly to `capabilities.output_contract.schema` (type\n`fermi/weather_raw_forecast`).\n\n`weather_oracle` lifts four leaves out of this document by name —\n`raw_probability`, `climatology_base_rate`, `within_model_spread`,\n`cross_model_spread` — and a test asserts they exist. Renaming one breaks the\ncomposition, so do not.\n\nTwo things the type enforces that prose could not:\n- The bucket probability is called `raw_probability`, because the tool's own\n  response says THESE ARE RAW MODEL PROBABILITIES, DO NOT TRADE THEM DIRECTLY.\n- `within_model_spread` and `cross_model_spread` stay separate. Within is\n  chaos; between-model is not knowing which model is right. A null\n  `cross_model_spread` means UNMEASURABLE (fewer than three models returned),\n  never zero.\n\n```json\n{\n  \"climatology\": {\n    \"climatology_base_rate\": null,\n    \"trend_adjusted_base_rate\": null,\n    \"warming_trend_per_decade\": null,\n    \"years_used\": null\n  },\n  \"climatology_provenance\": \"tool_verified\",\n  \"distribution\": {\n    \"ensemble_mean\": null,\n    \"ensemble_median\": null,\n    \"member_count\": null,\n    \"models_missing\": null,\n    \"models_returned\": null,\n    \"p10\": null,\n    \"p90\": null,\n    \"raw_probability\": null\n  },\n  \"distribution_provenance\": \"tool_verified\",\n  \"observation\": {\n    \"floor_violated\": null,\n    \"official_daily\": null,\n    \"running_max\": null,\n    \"running_min\": null\n  },\n  \"observation_provenance\": \"tool_verified\",\n  \"proposition\": {\n    \"bucket_high\": null,\n    \"bucket_low\": null,\n    \"local_date\": null,\n    \"station_icao\": null,\n    \"timezone\": null,\n    \"unit\": null,\n    \"variable\": null\n  },\n  \"proposition_provenance\": \"tool_verified\",\n  \"summary\": \"…\",\n  \"uncertainty\": {\n    \"cross_model_spread\": null,\n    \"epistemic_exceeds_aleatoric\": null,\n    \"within_model_spread\": null\n  },\n  \"uncertainty_provenance\": \"tool_verified\"\n}\n```\n\nSix rules, each enforced by the platform rather than by convention:\n\n1. **Every key is required, including the nulls.** A value you could not fill\n   is `null`, not absent. \"I asked and there was nothing\" and \"I did not ask\"\n   are different facts and the stamps distinguish them.\n2. **No extra keys.** The document is closed at every level.\n3. **Never write a `*_provenance` value outside its declared set.**\n4. **Only fill a sourced block from that block's own tool.** If you did not\n   call it, the block is null and its stamp says `tool_no_match` or\n   `pending_tool_check`.\n5. **Reasoned blocks are stamped `model_inference` always.** Do not put a\n   modelling choice inside a retrieved block.\n6. **The prose block must assert nothing the retrieved blocks support less\n   strongly.** It is scanned for exactly that.\n",
+  "capabilities": {
+    "executor": "llm",
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-5-20250929",
+    "temperature": 0.1,
+    "min_tier": "free",
+    "model_ladder": [
+      {
+        "tier": "free",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "note": "Tool orchestration is mechanical; haiku handles the happy path"
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "note": "Default. Needed for regime reasoning and coverage diagnosis"
+      },
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+        "note": "Frontier reasoning for extreme-regime and multi-model conflict cases"
+      }
+    ],
+    "capability_gates": {},
+    "model_params": {
+      "max_tokens": 4096,
+      "temperature": 0.1
+    },
+    "mcp_tools": [
+      {
+        "name": "weather_settlement_spec",
+        "description": "Resolve the market to its exact settlement station, timezone, unit and rounding rule. Call this FIRST, always.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string"
+            },
+            "station": {
+              "type": "string"
+            },
+            "variable": {
+              "type": "string",
+              "enum": [
+                "high_temp",
+                "low_temp",
+                "precipitation"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "weather_ensemble_forecast",
+        "description": "Multi-model, multi-member ensemble reduced to a predictive distribution with bucket and threshold probabilities.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "station": {
+              "type": "string"
+            },
+            "latitude": {
+              "type": "number"
+            },
+            "longitude": {
+              "type": "number"
+            },
+            "timezone": {
+              "type": "string"
+            },
+            "target_date": {
+              "type": "string"
+            },
+            "variable": {
+              "type": "string"
+            },
+            "unit": {
+              "type": "string"
+            },
+            "models": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "thresholds": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "bucket_edges": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "weather_climatology",
+        "description": "ERA5 base rate for the same calendar-day window across N years, with fitted warming trend and trend-adjusted base rates.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "station": {
+              "type": "string"
+            },
+            "latitude": {
+              "type": "number"
+            },
+            "longitude": {
+              "type": "number"
+            },
+            "timezone": {
+              "type": "string"
+            },
+            "target_date": {
+              "type": "string"
+            },
+            "variable": {
+              "type": "string"
+            },
+            "unit": {
+              "type": "string"
+            },
+            "window_days": {
+              "type": "integer"
+            },
+            "years_back": {
+              "type": "integer"
+            },
+            "thresholds": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "weather_station_observation",
+        "description": "NWS observations and Climatological Reports for a US station: running max/min so far, official daily figures, normals and records.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "station": {
+              "type": "string"
+            },
+            "include_cli": {
+              "type": "boolean"
+            },
+            "hours_back": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "station"
+          ]
+        }
+      }
+    ],
+    "skills": [],
+    "output_contract": {
+      "domain": "weather-forecasting",
+      "grounding": {
+        "climatology": {
+          "response_field": "ERA5 base rate for the same calendar-day window across N years, the fitted warming trend, and the trend-adjusted base rate",
+          "status": "sourced",
+          "tool": "weather_climatology",
+          "why": "The reference forecast for the Brier Skill Score downstream, so it belongs in the document rather than being recomputed by whoever needs it. Both the raw and the trend-adjusted base rate are carried: a warming trend fitted over decades moves the base rate materially for temperature thresholds, and a skill score computed against the wrong one flatters or punishes the forecast for a reason that has nothing to do with the forecast."
+        },
+        "climatology_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `climatology` block: `tool_verified` when `weather_climatology` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "distribution": {
+          "response_field": "bucket_probabilities for the target bucket, ensemble.n_members, ensemble.models_returned, ensemble.mean, ensemble.median, ensemble.p10, ensemble.p90",
+          "status": "sourced",
+          "tool": "weather_ensemble_forecast",
+          "why": "Every value is read straight off the ensemble response rather than derived. `raw_probability` is named exactly that, and not `probability`, because the tool's own response carries a `calibration_required` block saying THESE ARE RAW MODEL PROBABILITIES, DO NOT TRADE THEM DIRECTLY. A field called `probability` in a document a market agent reads would invite exactly the mistake the tool warns about, so the name carries the warning into the type."
+        },
+        "distribution_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `distribution` block: `tool_verified` when `weather_ensemble_forecast` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "observation": {
+          "response_field": "running max/min so far today and the official CLI daily figure when published",
+          "status": "sourced",
+          "tool": "weather_station_observation",
+          "why": "Deferred, and the distinction matters more here than anywhere else in this document. The tool covers NWS stations, so a non-US market has no observation available; and on a same-day question asked in the morning the check has simply not run yet. Either way the block is empty because it was not asked, not because nothing exists. This is also the highest-value block when it IS populated: a running realised maximum is a HARD FLOOR on a daily-high question, and a forecast distribution placing weight below an already-observed value is wrong in a way the ensemble cannot see."
+        },
+        "observation_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `observation` block: `tool_verified` when `weather_station_observation` returned a value, `tool_no_match` when it was asked and had nothing, and `pending_tool_check` when the check had not run yet. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "proposition": {
+          "response_field": "station identity (ICAO), IANA timezone defining the local day, unit, bucket width and rounding convention",
+          "status": "sourced",
+          "tool": "weather_settlement_spec",
+          "why": "A local registry lookup with no network: it either knows the market's station or it does not. Restated in this document even though the coordinator resolves it too, and that redundancy is the point — weather_oracle's Stage 4 checks whether the market's resolution text names the same station this stage forecast, and it cannot make that check unless both sides state it."
+        },
+        "proposition_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `proposition` block: `tool_verified` when `weather_settlement_spec` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "summary": {
+          "status": "narrative",
+          "why": "Prose for whoever reads the stage on its own. Must state that these probabilities are raw and not tradeable, because the sourced blocks say so and a summary that omits it is the one artefact a hurried reader takes away."
+        },
+        "uncertainty": {
+          "response_field": "ensemble.std_dev (within-model, aleatoric) and epistemic_disagreement.cross_model_median_range (between-model, epistemic)",
+          "status": "sourced",
+          "tool": "weather_ensemble_forecast",
+          "why": "Both numbers are returned by the tool, and the reason they are a block of their own is that they answer different questions. Spread within a model is chaos and shrinks with better initial conditions; spread between model medians is not knowing which model is right, and no single-model ensemble can see it at all. When the cross-model range is large relative to the ensemble standard deviation the raw histogram is overconfident even after calibration, and the correct response is to widen the no-trade band rather than to bet the histogram. A consumer handed one summed `uncertainty` number cannot tell which case it is in."
+        },
+        "uncertainty_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `uncertainty` block: `tool_verified` when `weather_ensemble_forecast` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        }
+      },
+      "produces_schema": "fermi/weather_raw_forecast",
+      "schema": {
+        "$id": "fermi/weather_raw_forecast",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Stage 1 of the weather pipeline: a RAW multi-model ensemble distribution and an ERA5 climatological base rate, with the uncertainty split into its aleatoric and epistemic parts. Explicitly not tradeable — the tool says so in its own response and the type says so here.",
+        "properties": {
+          "climatology": {
+            "additionalProperties": false,
+            "description": "The ERA5 reference forecast.",
+            "properties": {
+              "climatology_base_rate": {
+                "description": "ERA5 frequency of the target bucket over the historical calendar-day window. The reference the Brier Skill Score is computed against.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "trend_adjusted_base_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "warming_trend_per_decade": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "years_used": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "climatology_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "distribution": {
+            "additionalProperties": false,
+            "description": "The raw multi-model ensemble, reduced to the target bucket.",
+            "properties": {
+              "ensemble_mean": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "ensemble_median": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "member_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "models_missing": {
+                "description": "Named rather than counted. Fewer than three models returned means cross-model disagreement is not measurable, so the epistemic component below is invisible rather than absent — a different and worse situation than it being small.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "models_returned": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "p10": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "p90": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "raw_probability": {
+                "description": "Raw model probability for the target bucket. NOT tradeable: under-dispersion at 1-7 day leads systematically underprices the tail, which is what a threshold market pays on. weather_calibrator exists to correct this.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "distribution_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "observation": {
+            "additionalProperties": false,
+            "description": "What has already happened today, when the station reports it.",
+            "properties": {
+              "floor_violated": {
+                "description": "True when the distribution places weight below an already-realised value. A logical impossibility rather than a poor forecast, and worth surfacing as its own boolean because it invalidates the stage.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "official_daily": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "running_max": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "running_min": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "observation_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "pending_tool_check"
+            ]
+          },
+          "proposition": {
+            "additionalProperties": false,
+            "description": "The settlement target, resolved before anything is forecast.",
+            "properties": {
+              "bucket_high": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "bucket_low": {
+                "description": "Inclusive lower bound as a NUMBER, not a label. A bucket labelled `76-77` is the half-open interval [75.5, 77.5) and is two degrees wide.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "local_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "station_icao": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "timezone": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "variable": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "proposition_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "uncertainty": {
+            "additionalProperties": false,
+            "description": "The two components, kept apart.",
+            "properties": {
+              "cross_model_spread": {
+                "description": "Range across per-model medians. Epistemic: model disagreement. Null when fewer than three models returned, which means UNMEASURABLE and must not be read as zero.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "epistemic_exceeds_aleatoric": {
+                "description": "The condition that should widen the no-trade band. In the document rather than left in prose so a downstream agent can check it instead of trusting that this one mentioned it.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "within_model_spread": {
+                "description": "Ensemble standard deviation. Aleatoric: irreducible chaos at this lead time.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "uncertainty_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          }
+        },
+        "required": [
+          "proposition",
+          "proposition_provenance",
+          "distribution",
+          "distribution_provenance",
+          "uncertainty",
+          "uncertainty_provenance",
+          "climatology",
+          "climatology_provenance",
+          "observation",
+          "observation_provenance",
+          "summary"
+        ],
+        "title": "Raw ensemble forecast",
+        "type": "object"
+      },
+      "synthesis": "pipeline"
+    }
+  },
+  "accepts": [
+    "forecast-question",
+    "settlement-spec",
+    "location_context"
+  ],
+  "produces": [
+    "fermi/weather_raw_forecast"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": []
+  },
+  "requires_secrets": [],
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-08-13T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "domains": [],
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Prognosticales",
+      "species": "weather_ensemble_forecaster"
+    },
+    "tags": [
+      "weather",
+      "forecasting",
+      "ensemble",
+      "nwp",
+      "prediction-markets",
+      "probabilistic",
+      "open-meteo",
+      "era5",
+      "fleet:weather"
+    ],
+    "created": "2026-08-13",
+    "author": "Fermi Team",
+    "description": "Multi-model weather ensemble engine for prediction markets. Resolves a market to its exact settlement station, pulls ~100-160 members across five independent ensembles (ECMWF IFS, ICON, GEFS, GEM, BOM ACCESS), and returns a raw predictive distribution with an explicit aleatoric/epistemic uncertainty decomposition plus an ERA5 climatological base rate. Deliberately does not calibrate or price — it hands off to weather_calibrator.",
+    "sample_queries": [
+      "What is the distribution of the daily maximum temperature at the station that settles the Polymarket NYC market on 2026-08-16, with bucket edges for the 2F ladder from 79.5 to 89.5?",
+      "Give me the raw ensemble distribution and ERA5 base rate for the London daily high on 2026-08-20, in the unit the market settles in.",
+      "For Tokyo three days out, how much of the total uncertainty is cross-model disagreement versus within-model spread?",
+      "It is 4pm local in Chicago — how much of today's high is already realised, and what does that do to the distribution?",
+      "Is the forecast for Denver on 2026-08-18 in an extreme regime relative to climatology, and should I be discounting AI model guidance?"
+    ],
+    "valence": {
+      "primary_affect": "analytical",
+      "arousal": 0.3,
+      "valence": 0.55,
+      "personality_traits": [
+        "precise",
+        "calibration-obsessed",
+        "unwilling-to-guess",
+        "diagnostic"
+      ]
+    }
+  }
+}

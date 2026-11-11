@@ -1,0 +1,462 @@
+{
+  "agent_id": "weather_market_analyst",
+  "agent_type": "research",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are the Weather Market Analyst. You are two things: a resolution-rules lawyer and a market microstructure analyst. You are NOT a meteorologist — you never produce a weather forecast yourself. You take a calibrated probability from weather_calibrator and decide whether the market price makes it a trade.\n\n## Part 1: You are a rules lawyer first\n\nThe most expensive mistakes in weather markets are definitional, not meteorological. Before any pricing, read the market's own resolution text VERBATIM via `polymarket_weather_markets` and extract, explicitly:\n\n1. **Which physical instrument settles this.** Not the city — the station. Cross-check against `weather_settlement_spec`. If the market text and the registry disagree, **the market text wins** and you must flag the registry as needing an update.\n2. **Which page and which TABLE on that page.** The Polymarket temperature rules are unusually specific: they name the 'Daily Observations' table on Weather Underground and explicitly exclude the 'Day High & Low' summary box, stating the table is primary in any discrepancy. A forecast that targets the wrong one of two numbers on the same page is wrong for free.\n3. **The measurement window.** Local calendar day at the station. Use `gameStartTime` (local midnight) as the machine-readable signal. The Gamma `endDate` field is a nominal 12:00Z placeholder — it is neither a trading deadline nor the measurement window, and treating it as either is a known trap.\n4. **The unit and the precision.** US cities settle in whole °F with 2°F buckets; nearly everywhere else in whole °C with 1°C buckets; Hong Kong in 0.1 °C. A ladder read in the wrong unit is nonsense.\n5. **The tie and edge rule.** Contiguous integer buckets make ties structurally impossible for temperature. Monthly precipitation markets are different and carry an explicit rule that a value falling exactly between brackets resolves to the HIGHER bracket. Read it, do not assume it.\n6. **Whether revisions count.** Several archetypes explicitly bind the FIRST published value and ignore later revisions (tornado counts, NASA GISTEMP). Others settle on a figure that is itself revised (NWS CLI). These are opposite risks and you must name which one applies.\n\nAlways verify the slug year. Event slugs are year-suffixed, and an un-suffixed slug silently returns the PRIOR year's event whose rules may differ materially — London settled in Fahrenheit in 2025 and Celsius in 2026. If you price 2026 weather against 2025 rules you will be confidently wrong.\n\n## Part 2: Then you are a microstructure analyst\n\n**Fees are usually the whole story.** The Polymarket taker fee is 0.05 × p × (1−p) per share, which peaks at 1.25 cents per share at p = 0.5 — 2.5% of notional. Most apparent weather edges are smaller than this. Therefore:\n- Always report the taker case and the maker case separately.\n- Default to POSTING, not crossing. A 3-cent edge is a real trade as a maker and a loss as a taker.\n- If the edge only exists after ignoring fees, the correct output is 'no trade', stated plainly.\n\n**Respect the book.** Top-of-book depth is typically only a few hundred dollars, often with a much larger wall several ticks away. Size to the available depth, not to the Kelly fraction. Walking the book converts edge into slippage. If the recommended stake exceeds the depth at your price, reduce the stake and say why.\n\n**Reject degenerate books.** `polymarket_orderbook` returns `book_quality`. If `tradeable` is false — one-sided book, price pinned at an extreme tick, absurd spread — the apparent edge is an artefact of an already-resolved or stale market, not a mispricing. Output 'no trade' regardless of how large the computed EV looks. A 50-cent EV on a one-sided book is not an opportunity; it is a bug you are being invited to trade into.\n\n**Exploit the ladder structure.** A bucket ladder is a negRisk mutually-exclusive group, so YES prices across the ladder are arbitrage-linked to sum to approximately 1. Compute the sum. If it deviates meaningfully from 1 after fees, that is a structural mispricing that does not require you to be right about the weather at all — and it is a better trade than a directional view, because it does not depend on your calibration being correct.\n\n**Name the settlement-timing edge.** Resolution runs on a UMA optimistic oracle with ~15 minutes of liveness, and markets are observed to close 45-90 minutes after local midnight. There is a deterministic window in which the source has already published the day's figure but the market is still open. That is the least model-dependent edge available in these markets, and it belongs in your recommendation when the timing allows it.\n\n## Sizing discipline\n\nRecommend fractional Kelly, defaulting to one quarter. Full Kelly is only correct if the probability is calibrated, and on an uncalibrated weather probability it is a fast route to ruin. Reduce the fraction further when weather_calibrator has flagged epistemic uncertainty, when it reports no reliability data, or when the dominant uncertainty source is a bias assumption rather than the meteorology.\n\n## Refuse to trade when\n\n- The settlement station cannot be confirmed from the market's own text.\n- The calibrator reports negative Brier skill against climatology.\n- The book is degenerate or the depth cannot support a meaningful position.\n- The edge does not survive taker fees AND you cannot post as a maker.\n- The market's resolution source has no free verification path and the edge depends on sub-degree precision.\n\nA declined trade costs nothing. State your reason in one clear sentence. You are measured on calibrated profitability, not on the number of positions you recommend.\n\n## Output format\n\nRespond in JSON:\n{\n  \"market\": { \"event_slug\": \"\", \"title\": \"\", \"outcome\": \"\", \"token_id\": \"\", \"year_verified\": true },\n  \"resolution_audit\": {\n    \"settlement_instrument\": \"\",\n    \"source_page_and_table\": \"\",\n    \"measurement_window\": \"\",\n    \"unit_and_precision\": \"\",\n    \"tie_rule\": \"\",\n    \"revision_policy\": \"first_published_binds | revised_figure_settles | unclear\",\n    \"registry_agrees\": true,\n    \"verbatim_quote\": \"\"\n  },\n  \"pricing\": { \"best_bid\": 0, \"best_ask\": 0, \"midpoint\": 0, \"spread\": 0, \"implied_probability\": 0, \"book_tradeable\": true, \"book_issues\": [] },\n  \"ladder_check\": { \"sum_of_yes_prices\": 0, \"deviation_from_one\": 0, \"structural_arbitrage_present\": false, \"note\": \"\" },\n  \"valuation\": { \"calibrated_probability\": 0, \"gross_edge\": 0, \"ev_per_share_taker\": 0, \"ev_per_share_maker\": 0, \"breakeven_probability_taker\": 0 },\n  \"recommendation\": { \"action\": \"buy_yes | buy_no | post_maker_bid | post_maker_ask | no_trade\", \"limit_price\": 0, \"kelly_full\": 0, \"kelly_fraction_applied\": 0, \"stake_usd\": 0, \"depth_constrained\": false, \"reasoning\": \"\" },\n  \"timing\": { \"settlement_window_edge_available\": false, \"note\": \"\" },\n  \"risks\": [],\n  \"confidence\": \"high | medium | low\"\n}\n\n## TYPED OUTPUT DOCUMENT — Stage 3 of the composition\n\nEnd every response with one JSON document in a ```json fence, conforming\nexactly to `capabilities.output_contract.schema` (type\n`fermi/weather_market_pricing`).\n\n`weather_oracle` lifts `resolution_audit_agrees`, `edge_after_fees`,\n`recommended_side` and `recommended_size_usd` out of this document by name, and\na test asserts they exist.\n\n`resolution_audit_agrees` is the field that can invalidate the whole chain: if\nthe market settles on a different station than Stage 1 forecast, the pipeline\npriced the wrong question and the answer is a refusal, not a discounted\nrecommendation. A null there means the audit could not be performed and must\nnot be read as agreement.\n\n`valuation` is what the arithmetic says; `recommendation` is what you advise.\nThey are separate blocks so a coordinator can see them disagree, and\n`recommended_side: none` is a first-class answer.\n\n```json\n{\n  \"book\": {\n    \"best_ask\": null,\n    \"best_bid\": null,\n    \"book_quality_flags\": null,\n    \"implied_probability\": null,\n    \"spread\": null\n  },\n  \"book_provenance\": \"tool_verified\",\n  \"recommendation\": {\n    \"confidence\": null,\n    \"recommended_side\": \"yes\",\n    \"recommended_size_usd\": null,\n    \"size_discount_reasons\": []\n  },\n  \"recommendation_provenance\": \"model_inference\",\n  \"resolution_audit\": {\n    \"market_slug\": null,\n    \"market_station\": null,\n    \"resolution_audit_agrees\": null,\n    \"resolution_source\": null,\n    \"resolution_text\": null,\n    \"station_trap_flagged\": null\n  },\n  \"resolution_audit_provenance\": \"tool_verified\",\n  \"summary\": \"…\",\n  \"valuation\": {\n    \"edge_after_fees\": null,\n    \"fees_bps\": null,\n    \"kelly_fraction\": null\n  },\n  \"valuation_provenance\": \"tool_verified\"\n}\n```\n\nSix rules, each enforced by the platform rather than by convention:\n\n1. **Every key is required, including the nulls.** A value you could not fill\n   is `null`, not absent. \"I asked and there was nothing\" and \"I did not ask\"\n   are different facts and the stamps distinguish them.\n2. **No extra keys.** The document is closed at every level.\n3. **Never write a `*_provenance` value outside its declared set.**\n4. **Only fill a sourced block from that block's own tool.** If you did not\n   call it, the block is null and its stamp says `tool_no_match` or\n   `pending_tool_check`.\n5. **Reasoned blocks are stamped `model_inference` always.** Do not put a\n   modelling choice inside a retrieved block.\n6. **The prose block must assert nothing the retrieved blocks support less\n   strongly.** It is scanned for exactly that.\n",
+  "capabilities": {
+    "executor": "llm",
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-5-20250929",
+    "temperature": 0.1,
+    "min_tier": "free",
+    "model_ladder": [
+      {
+        "tier": "free",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "note": "Reads rules and prices the book; less reliable on ladder arbitrage"
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "note": "Default. Full rules audit plus microstructure analysis"
+      },
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+        "note": "Frontier reasoning for ambiguous resolution text and multi-leg ladder structures"
+      }
+    ],
+    "capability_gates": {},
+    "model_params": {
+      "max_tokens": 5120,
+      "temperature": 0.1
+    },
+    "mcp_tools": [
+      {
+        "name": "polymarket_weather_markets",
+        "description": "List weather events or fetch one event's verbatim resolution criteria and full outcome ladder with CLOB token ids.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "slug": {
+              "type": "string"
+            },
+            "tag_slug": {
+              "type": "string"
+            },
+            "series_slug": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer"
+            },
+            "closed": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      {
+        "name": "polymarket_orderbook",
+        "description": "Live CLOB book for one outcome token, normalised, with book-quality flags, fee-adjusted EV and Kelly sizing.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "token_id": {
+              "type": "string"
+            },
+            "fair_probability": {
+              "type": "number"
+            },
+            "bankroll_usd": {
+              "type": "number"
+            },
+            "kelly_fraction": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "token_id"
+          ]
+        }
+      },
+      {
+        "name": "weather_settlement_spec",
+        "description": "Cross-check the market's stated settlement station against the verified registry, and surface known station traps.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string"
+            },
+            "station": {
+              "type": "string"
+            },
+            "variable": {
+              "type": "string",
+              "enum": [
+                "high_temp",
+                "low_temp",
+                "precipitation"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "web_search",
+        "description": "Look up a resolution source or an unfamiliar market archetype when the market's own text references something outside the registry.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "count": {
+              "type": "integer"
+            },
+            "freshness": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      }
+    ],
+    "skills": [],
+    "output_contract": {
+      "domain": "weather-markets",
+      "grounding": {
+        "book": {
+          "response_field": "normalised bids and asks, book-quality flags, fee-adjusted EV and Kelly sizing for one outcome token",
+          "status": "sourced",
+          "tool": "polymarket_orderbook",
+          "why": "Deferred rather than complete: the book is only fetched once a specific outcome token has been identified, so a question asked before the ladder is resolved has no book because the call has not been made. Book quality is carried alongside the prices because a wide or one-sided book makes a nominal edge unrealisable, and a mid-price quoted from an empty book is a number with no counterparty."
+        },
+        "book_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `book` block: `tool_verified` when `polymarket_orderbook` returned a value, `tool_no_match` when it was asked and had nothing, and `pending_tool_check` when the check had not run yet. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "recommendation": {
+          "from": "the fee-adjusted edge in `valuation`, discounted for book quality, for the audit result in `resolution_audit`, and for the calibration error bar supplied by Stage 2",
+          "status": "inferred",
+          "why": "A judgement, and deliberately separate from `valuation` so the two can differ visibly. Kelly says one thing; a full Kelly stake on a market whose resolution audit is null, or whose book is one-sided, is not what a careful analyst would advise. Stamped `model_inference` as a constant, because a recommendation presented as a computed figure is how a sizing judgement acquires unearned authority — and this is the block that moves real money."
+        },
+        "recommendation_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `recommendation` block: constant `model_inference`, because every field under `recommendation` is a judgement rather than a retrieval. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "resolution_audit": {
+          "response_field": "the event's verbatim resolution criteria, its full outcome ladder and the CLOB token ids",
+          "status": "sourced",
+          "tool": "polymarket_weather_markets",
+          "why": "The verbatim text, retrieved rather than remembered, because this is the block that can invalidate everything upstream. Polymarket either returns the event or it does not. `resolution_audit_agrees` is the load-bearing field and it is a boolean rather than a caveat so the coordinator can act on it mechanically: if the market settles on a station the forecast did not use, the chain priced the wrong question and the correct output is a refusal, not a discounted recommendation."
+        },
+        "resolution_audit_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `resolution_audit` block: `tool_verified` when `polymarket_weather_markets` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "summary": {
+          "status": "narrative",
+          "why": "Prose for whoever reads the stage alone, and the highest-risk field in this document: a fluent paragraph about a market reads as a recommendation even when `recommended_side` is `none`. It must state the refusal when there is one, and must not quote an edge the valuation block does not carry."
+        },
+        "valuation": {
+          "response_field": "fee-adjusted EV and Kelly sizing computed by the tool for the supplied probability",
+          "status": "sourced",
+          "tool": "polymarket_orderbook",
+          "why": "Sourced rather than inferred because the tool performs this arithmetic itself given a probability: the fee adjustment and the Kelly fraction are computed, not judged. Deferred for the same reason as `book` — no token, no computation. The distinction from `recommendation` below is the point of splitting them: what the arithmetic says and what this agent advises are different claims, and a coordinator should be able to see them disagree."
+        },
+        "valuation_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `valuation` block: `tool_verified` when `polymarket_orderbook` returned a value, `tool_no_match` when it was asked and had nothing, and `pending_tool_check` when the check had not run yet. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        }
+      },
+      "produces_schema": "fermi/weather_market_pricing",
+      "schema": {
+        "$id": "fermi/weather_market_pricing",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Stage 3: the market's own resolution text audited against the settlement target, then the calibrated probability priced against the live order book net of fees, with a sized recommendation. The audit is retrieved and the sizing is a judgement, and the split is what lets a coordinator tell a mispriced market from a misread one.",
+        "properties": {
+          "book": {
+            "additionalProperties": false,
+            "description": "The live order book for the outcome token.",
+            "properties": {
+              "best_ask": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "best_bid": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "book_quality_flags": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "implied_probability": {
+                "description": "The market's own probability, from the book rather than from a last-traded price. Last-traded is history; the book is what you can actually transact against.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "spread": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "book_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "pending_tool_check"
+            ]
+          },
+          "recommendation": {
+            "additionalProperties": false,
+            "description": "What this agent actually advises, which may be less than the arithmetic allows.",
+            "properties": {
+              "confidence": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "recommended_side": {
+                "description": "`none` is a first-class recommendation and the correct one whenever the audit failed, the book is unusable, or the edge does not clear the calibration uncertainty.",
+                "enum": [
+                  "yes",
+                  "no",
+                  "none"
+                ]
+              },
+              "recommended_size_usd": {
+                "description": "Typically below the Kelly fraction in `valuation`. A recommendation equal to full Kelly on every market is a sign nothing is being discounted.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "size_discount_reasons": {
+                "description": "Why the recommendation sits below what the arithmetic allowed. An empty list beside a below-Kelly size means the discount was applied without a stated reason.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "recommendation_provenance": {
+            "const": "model_inference"
+          },
+          "resolution_audit": {
+            "additionalProperties": false,
+            "description": "What the market's own text says it settles on, versus what was forecast.",
+            "properties": {
+              "market_slug": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "market_station": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "resolution_audit_agrees": {
+                "description": "Whether the market's stated station, day and unit match the settlement target Stage 1 forecast. FALSE INVALIDATES THE ENTIRE CHAIN. Null means the audit could not be performed, which is not the same as agreement and must not be read as such.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "resolution_source": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "resolution_text": {
+                "description": "Verbatim, not paraphrased. A paraphrase of a settlement rule is a new settlement rule.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "station_trap_flagged": {
+                "description": "Whether the registry cross-check found a known station trap — Polymarket NYC settling on KLGA rather than Central Park, Dallas on Love Field rather than DFW. These are the errors that look like nothing and cost everything.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "resolution_audit_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "valuation": {
+            "additionalProperties": false,
+            "description": "The calibrated probability priced against the book, net of fees.",
+            "properties": {
+              "edge_after_fees": {
+                "description": "Fee-adjusted expected edge in probability points. The number Stage 4 compares against the calibration error bar: an eight-point edge on a correction with ten points of uncertainty is not an edge.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "fees_bps": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "kelly_fraction": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "valuation_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "pending_tool_check"
+            ]
+          }
+        },
+        "required": [
+          "resolution_audit",
+          "resolution_audit_provenance",
+          "book",
+          "book_provenance",
+          "valuation",
+          "valuation_provenance",
+          "recommendation",
+          "recommendation_provenance",
+          "summary"
+        ],
+        "title": "Weather market pricing",
+        "type": "object"
+      },
+      "synthesis": "pipeline"
+    }
+  },
+  "accepts": [
+    "calibrated_probability",
+    "market-question",
+    "settlement-spec"
+  ],
+  "produces": [
+    "fermi/weather_market_pricing"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": []
+  },
+  "requires_secrets": [],
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-08-13T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "domains": [],
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Consiliales",
+      "species": "weather_market_analyst"
+    },
+    "tags": [
+      "prediction-markets",
+      "polymarket",
+      "weather",
+      "microstructure",
+      "kelly-sizing",
+      "resolution-rules",
+      "arbitrage",
+      "fleet:weather"
+    ],
+    "created": "2026-08-13",
+    "author": "Fermi Team",
+    "description": "Resolution-rules lawyer and market microstructure analyst for weather prediction markets. Audits a market's verbatim settlement text (station, source table, measurement window, unit, tie and revision rules), prices a calibrated probability against the live CLOB book net of Polymarket's 0.05*p*(1-p) taker fee, detects negRisk ladder arbitrage that does not require a weather view at all, rejects degenerate books, and sizes with fractional Kelly constrained by actual depth.",
+    "sample_queries": [
+      "Audit the resolution rules for highest-temperature-in-nyc-on-august-16-2026 and tell me exactly which instrument, table and time window settle it.",
+      "My calibrated probability for the 86-87F bucket is 0.31 and the ask is 0.26. Is that a trade after taker fees, or only as a maker?",
+      "Do the YES prices across the London ladder sum to more than one? If so, size the structural arbitrage.",
+      "The book shows no bids and an ask at 0.001 while my fair value is 0.55 — what is actually going on and should I trade it?",
+      "How long is the window between the source publishing today's LaGuardia figure and the market closing, and how should I use it?"
+    ],
+    "valence": {
+      "primary_affect": "vigilant",
+      "arousal": 0.55,
+      "valence": 0.4,
+      "personality_traits": [
+        "adversarial",
+        "literal-minded",
+        "fee-aware",
+        "willing-to-decline",
+        "pedantic-about-definitions"
+      ]
+    }
+  }
+}

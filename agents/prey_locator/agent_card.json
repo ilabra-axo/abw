@@ -1,0 +1,134 @@
+{
+  "agent_id": "prey_locator",
+  "name": "Prey Locator",
+  "agent_type": "research",
+  "tier": "curated",
+  "version": "1.1.0",
+  "capabilities": {
+    "model": "claude-haiku-4-5-20251001",
+    "provider": "anthropic",
+    "temperature": 0.4,
+    "max_tokens": 2048,
+    "mcp_tools": [
+      {
+        "name": "scan_nearby_creatures",
+        "description": "Scan for creatures near the given creature's H3 location. Returns species, distance, and creature IDs of nearby creatures.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "creature_id": {
+              "type": "string",
+              "description": "UUID of the creature to scan around"
+            },
+            "radius_cells": {
+              "type": "integer",
+              "description": "H3 ring radius to scan (default: 2)",
+              "default": 2
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "gbif_species_search",
+        "description": "Search the GBIF (Global Biodiversity Information Facility) API for insect species. Returns taxonomy, common names, and media references.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Species name (common or scientific) to search for"
+            },
+            "gbif_key": {
+              "type": "integer",
+              "description": "Specific GBIF species key for direct lookup"
+            },
+            "rank": {
+              "type": "string",
+              "description": "Taxonomic rank filter: SPECIES, GENUS, FAMILY (default: SPECIES)",
+              "default": "SPECIES"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Max results (default: 5)",
+              "default": 5
+            }
+          },
+          "required": []
+        }
+      }
+    ],
+    "executor": "llm",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {}
+  },
+  "system_prompt": "You are a tactical ecological hunting advisor. Given a predator creature's species and nearby creatures, you perform two functions.\n\nSTEP 1 — CALL TOOLS TO GATHER DATA: You have been given scan_nearby_creatures and gbif_species_search as function calls. These are server-side tools — call them directly. Do NOT say you cannot access external APIs. Call scan_nearby_creatures first with the creature_id from the query. You must call at least one tool before responding.\n\n**SCAN MODE**: Identify viable prey from nearby creatures. Consider:\n- Order-level predator-prey relationships (e.g., Odonata hunt Diptera, Lepidoptera, small Hymenoptera)\n- Size ratios — predator must be large enough relative to prey\n- Life stage and behavioral vulnerability\n- Habitat overlap and encounter probability\n- Defensive capabilities of potential prey (stings, toxins, camouflage)\n\nSTEP 2 — RESPOND with a JSON object in this exact shape:\n{\"prey_targets\": [{\"creature_id\": \"...\", \"species\": \"...\", \"order\": \"...\", \"vulnerability\": \"high|medium|low\", \"distance_cells\": N, \"reasoning\": \"brief\"}], \"hunting_summary\": \"...\", \"predator_advantage\": \"...\"}\n\n**STALK MODE**: Given a selected target, generate a tactical intercept flight plan. Consider approach vectors, wind patterns (if available), prey escape behaviors, and optimal ambush positions.\n\nSTEP 2 — RESPOND with a JSON object in this exact shape:\n{\"flight_plan\": {\"approach\": \"...\", \"waypoints\": [{\"lat\": N, \"lng\": N, \"altitude_m\": N, \"instruction\": \"...\"}], \"intercept_strategy\": \"...\", \"estimated_distance_m\": N, \"difficulty\": \"easy|moderate|challenging|expert\"}, \"tactical_notes\": \"...\"}",
+  "metadata": {
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Consiliales",
+      "species": "prey_locator"
+    },
+    "tags": [
+      "rabble",
+      "ecology",
+      "hunting",
+      "premium",
+      "sensor",
+      "tactical"
+    ],
+    "sample_queries": [
+      "Scan for prey near this dragonfly (Anax junius, Odonata)",
+      "Plan a stalk flight to intercept the nearby moth at 2 cells distance",
+      "What can this robber fly (Asilidae) hunt in the area?"
+    ],
+    "created": "2026-02-18",
+    "author": "Fermi Team",
+    "description": "Premium tactical hunting intelligence. Scans nearby creatures to identify viable prey based on taxonomic predator-prey relationships, then generates optimized intercept flight plans with waypoints. Two-phase: scan for targets, then stalk with a precision flight path.",
+    "valence": {
+      "primary_affect": "analytical",
+      "arousal": 0.4,
+      "valence": 0.6,
+      "personality_traits": [
+        "precise",
+        "evidence-driven"
+      ]
+    }
+  },
+  "accepts": [
+    "creature_id",
+    "species_data",
+    "location_context",
+    "target_selection"
+  ],
+  "produces": [
+    "prey_targets",
+    "hunting_summary",
+    "flight_plan",
+    "tactical_notes"
+  ]
+}
