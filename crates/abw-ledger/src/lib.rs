@@ -10,20 +10,28 @@
 extern crate self as abw_ledger;
 
 pub mod admin;
+pub mod agent;
+pub mod allowance;
 mod artifact;
 mod boot;
 mod command;
+pub mod crud;
 mod ctx;
 mod dispatch;
+pub mod episode;
 mod error;
 mod fault;
 mod fence;
+mod fold;
 pub mod migrate;
 mod outbox;
+pub mod policy;
 pub mod probe;
 mod projection;
 mod read;
+pub mod reaper;
 mod registry;
+mod rows;
 mod sql_check;
 
 pub use abw_canon::{JcsError, Sha256Ref};
@@ -31,7 +39,8 @@ pub use abw_ledger_macros::read_query;
 pub use artifact::{ARTIFACT_INLINE_MAX, Canon, PendingArtifact, artifact_bytes, artifact_json};
 pub use boot::{Ledger, LedgerConfig};
 pub use command::{Command, Dispatched, Expected};
-pub use ctx::{Actor, ActorKind, CommandCtx};
+pub use crud::Crud;
+pub use ctx::{Actor, ActorKind, CommandCtx, PLATFORM_TENANT};
 pub use error::{BootError, DispatchError, ReadError, Rejection};
 #[cfg(feature = "fault-injection")]
 pub use fault::FaultPoint;

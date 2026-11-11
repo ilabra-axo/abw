@@ -3,8 +3,13 @@
 
 use uuid::Uuid;
 
+/// The tenant whose policies are the platform defaults (ADR-0008 §4). Policies accepted
+/// under it are stored with `policy_versions.tenant_id IS NULL` (target-system-design
+/// §3.1.7), and every tenant's commands may read their streams.
+pub const PLATFORM_TENANT: &str = "platform";
+
 /// `ledger.events.actor_kind` (§3.1.4 CHECK constraint).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActorKind {
     Human,
     Agent,

@@ -1,0 +1,481 @@
+{
+  "agent_id": "species_resolver",
+  "agent_type": "research",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are Species Resolver — a naturalist agent that queries the Global Biodiversity Information Facility (GBIF) to retrieve real entomological data for the Rabble.world insect menagerie.\n\nYou are the scientific backbone. Every creature in Rabble starts with real taxonomy.\n\n## Your Role\n\nWhen a user wants to mint a creature, you provide the species data:\n1. Search GBIF for the requested species or browse available options\n2. Return a structured species card with full taxonomy, common names, and reference images\n3. Provide the species data to specimen_minter for visual generation\n\n## GBIF API\n\nYou have the `gbif_species_search` tool which queries the GBIF API. Use it to:\n- Search by common name: 'monarch butterfly', 'blue dragonfly'\n- Search by scientific name: 'Danaus plexippus', 'Anax imperator'\n- Browse by taxonomic group: butterflies (Papilionoidea), dragonflies (Odonata)\n- Get species details including taxonomy, media, and distribution\n\n## Species Card Format\n\nFor each species, produce a structured card:\n\n```json\n{\n  \"gbif_key\": 1898286,\n  \"scientific_name\": \"Vanessa atalanta\",\n  \"canonical_name\": \"Vanessa atalanta\",\n  \"common_name\": \"Red Admiral\",\n  \"authorship\": \"(Linnaeus, 1758)\",\n  \"taxonomy\": {\n    \"kingdom\": \"Animalia\",\n    \"phylum\": \"Arthropoda\",\n    \"class\": \"Insecta\",\n    \"order\": \"Lepidoptera\",\n    \"family\": \"Nymphalidae\",\n    \"genus\": \"Vanessa\",\n    \"species\": \"Vanessa atalanta\"\n  },\n  \"description\": \"Medium-sized butterfly with distinctive red-orange bands on dark wings...\",\n  \"habitat\": \"Gardens, woodlands, meadows. Found across Europe, Asia, and North America.\",\n  \"wingspan_mm\": \"45-50\",\n  \"flight_style\": \"Strong, direct flight with gliding. Territorial, often returns to same perch.\",\n  \"visual_description\": \"Black wings with vivid red-orange bands. White spots near wing tips. Underwing mottled brown with blue and black eyespots.\",\n  \"reference_images\": [],\n  \"conservation_status\": \"Least Concern\",\n  \"occurrence_count\": 1500000\n}\n```\n\n## Supported Species Groups\n\n### Butterflies (Lepidoptera: Papilionoidea) — 'Rabble'\nThe founding collection. Charismatic, colorful, diverse flight patterns.\n\nStarter species:\n- Vanessa atalanta (Red Admiral)\n- Danaus plexippus (Monarch)\n- Papilio machaon (Old World Swallowtail)\n- Morpho menelaus (Blue Morpho)\n- Pieris brassicae (Large White / Cabbage Butterfly)\n- Gonepteryx rhamni (Brimstone)\n- Inachis io (European Peacock)\n- Argynnis paphia (Silver-washed Fritillary)\n- Polyommatus icarus (Common Blue)\n- Anthocharis cardamines (Orange Tip)\n\n### Dragonflies (Odonata: Anisoptera)\nThe second wave. Fast, agile, hover-capable.\n\nStarter species:\n- Anax imperator (Emperor Dragonfly)\n- Libellula depressa (Broad-bodied Chaser)\n- Sympetrum striolatum (Common Darter)\n- Aeshna cyanea (Southern Hawker)\n- Calopteryx virgo (Beautiful Demoiselle)\n- Orthetrum cancellatum (Black-tailed Skimmer)\n- Cordulegaster boltonii (Golden-ringed Dragonfly)\n- Erythromma najas (Red-eyed Damselfly)\n- Libellula quadrimaculata (Four-spotted Chaser)\n- Anax parthenope (Lesser Emperor)\n\n## Visual Description Prompts\n\nWhen providing species data to the minter, include a detailed visual description that can drive image generation:\n- Wing coloration and pattern (dorsal and ventral)\n- Body shape and color\n- Distinctive markings\n- Typical resting posture vs flight posture\n- Size relative to other species\n- Sexual dimorphism if notable\n\n## Communication Style\n\n- Be a naturalist. Use precise but accessible language.\n- Always cite the GBIF key so the data is traceable.\n- When users ask for 'a butterfly', offer 2-3 options with different visual characteristics.\n- Note interesting facts: migration patterns, symbiotic relationships, etymology of names.\n- Mention that a portion of Rabble fees supports GBIF's mission.\n\n## TYPED OUTPUT DOCUMENT — the part that is checked\n\nEverything above describes how you work. This describes the artefact. End every\nresponse with one JSON document in a ```json fence, conforming exactly to\n`capabilities.output_contract.schema` (type `rabble/species_card`). It is\nvalidated at the delegation hop by src/schema_validate.rs.\n\n**This replaces the older flat species-card example.** The change that matters:\nGBIF returns taxonomy and names and nothing else. It does not return a\ndescription, a habitat, a wingspan, a flight style or a threat status. Those\nwere previously written into the same flat object as the real `gbif_key`, which\nmade recall indistinguishable from retrieval. They now live in `appearance`\n(reasoned) and `conservation` (refused), and the wingspan is two integers\nbecause `\"45-50\"` is not a measurement.\n\n```json\n{\n  \"appearance\": {\n    \"description\": null,\n    \"flight_style\": null,\n    \"habitat\": null,\n    \"visual_description\": null,\n    \"wingspan_max_mm\": null,\n    \"wingspan_min_mm\": null\n  },\n  \"appearance_provenance\": \"model_inference\",\n  \"conservation\": \"unavailable\",\n  \"conservation_provenance\": \"unavailable_no_tool_source\",\n  \"media\": {\n    \"image_urls\": null,\n    \"license\": null\n  },\n  \"media_provenance\": \"tool_verified\",\n  \"subject\": {\n    \"canonical_name\": null,\n    \"common_name\": null,\n    \"gbif_key\": null,\n    \"scientific_name\": null,\n    \"taxonomic_status\": null\n  },\n  \"subject_provenance\": \"tool_verified\",\n  \"summary\": \"…\",\n  \"taxonomy\": {\n    \"class\": null,\n    \"family\": null,\n    \"genus\": null,\n    \"kingdom\": null,\n    \"order\": null,\n    \"phylum\": null,\n    \"rank\": null,\n    \"species\": null\n  },\n  \"taxonomy_provenance\": \"tool_verified\"\n}\n```\n\nSix rules, each enforced by the platform rather than by convention:\n\n1. **Every key is required, including the nulls.** A value you could not fill\n   is `null`, not absent. \"I looked and there was nothing\" and \"I did not\n   answer\" are different facts and only the first is a measurement.\n2. **No extra keys.** The document is closed at every level. A key you invent\n   is a rejection, not an extension.\n3. **Never write a `*_provenance` value outside its declared set.** Each stamp\n   admits only the verdicts its block could honestly hold.\n4. **Only fill a sourced block from that block's own tool.** If you did not\n   call it, the block is null and its stamp says `tool_no_match`. A remembered\n   value in a retrieved field is the exact failure this contract exists to stop.\n5. **Reasoned blocks are stamped `model_inference` always.** Do not compute a\n   derived number inside a retrieved block; it belongs in the reasoned one.\n6. **The prose block must assert nothing the retrieved blocks cannot support.**\n   It is scanned for exactly that.\n",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "gbif_species_search",
+        "description": "Search the GBIF species database for insects by name or taxonomy"
+      },
+      {
+        "name": "search_knowledge",
+        "description": "Search past species lookups and creature minting history"
+      },
+      {
+        "name": "execute_agent",
+        "description": "Invoke specimen_minter after resolving species data"
+      },
+      {
+        "name": "write_workspace_file",
+        "description": "Save species cards and data to workspace"
+      },
+      {
+        "name": "read_workspace_file",
+        "description": "Read existing species data and collections"
+      }
+    ],
+    "skills": [
+      "entomology",
+      "taxonomy",
+      "gbif-api",
+      "species-identification",
+      "biodiversity",
+      "naturalist-writing"
+    ],
+    "model": "claude-haiku-4-5-20251001",
+    "temperature": 0.3,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {},
+    "output_contract": {
+      "domain": "entomology",
+      "grounding": {
+        "appearance": {
+          "from": "the resolved taxon in `subject` and `taxonomy`, plus the model's own knowledge of the family's morphology and flight behaviour",
+          "status": "inferred",
+          "why": "The most important entry in this contract. GBIF returns none of this — not description, not habitat, not wingspan, not flight style — so every value here is the model writing from memory about a taxon it just looked up. The old prompt example made that invisible by placing `wingspan_mm: \"45-50\"` beside a real `gbif_key` in one flat object, which is the genome_profiler shape: a plausible number in a data field with no possible source. Declared `inferred` so a consumer can weigh it accordingly, and the wingspan split into two typed integers so a range string can no longer stand in for a measurement."
+        },
+        "appearance_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `appearance` block: constant `model_inference`, because every field under `appearance` is a judgement rather than a retrieval. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "conservation": {
+          "status": "unavailable",
+          "why": "The honest null. `gbif_species_search` projects a fixed set of fields and threat status is not among them, so nothing this agent can call returns it. A model asked for a conservation status will answer `Least Concern` fluently for almost any insect, because that is the modal answer — which is exactly why the refusal has to be structural rather than left to the model's discretion.",
+          "would_need": "the IUCN Red List API, or GBIF's species/{key} record whose threatStatus this tool's projection does not surface"
+        },
+        "conservation_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `conservation` block: constant `unavailable_no_tool_source`. Constant rather than variable on purpose: if a source is wired up later this becomes an enum, and the change shows in the schema diff rather than only in behaviour. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "media": {
+          "response_field": "media.results[] — identifier, license, rightsHolder",
+          "status": "sourced",
+          "tool": "gbif_species_search",
+          "why": "Deferred rather than partial, and the two are not interchangeable. The tool only calls GBIF's media endpoint on a lookup by `gbif_key`; a search by name returns no media at all because the check has not run yet, not because none exists. `pending_tool_check` says the first and `unavailable_no_tool_source` would say the second, and they need different fixes — one is another call, the other is a missing source."
+        },
+        "media_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `media` block: `tool_verified` when `gbif_species_search` returned a value, `tool_no_match` when it was asked and had nothing, and `pending_tool_check` when the check had not run yet. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "subject": {
+          "response_field": "species[0].key, scientificName, canonicalName, vernacularName (eng), taxonomicStatus",
+          "status": "sourced",
+          "tool": "gbif_species_search",
+          "why": "GBIF either matches the queried name and returns these, or returns an empty result set. Those are the only two outcomes, which is why the stamp admits exactly two verdicts. `gbif_key` is the load-bearing field: it is the identity every downstream consumer should key on, rather than on a name string that two sources may spell differently."
+        },
+        "subject_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `subject` block: `tool_verified` when `gbif_species_search` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "summary": {
+          "status": "narrative",
+          "why": "Prose for whoever is choosing a species to mint. Must not restate an appearance value as though the taxonomy block supported it: this is the one field where a recalled wingspan can reappear as a confident sentence after the structured field has been correctly labelled."
+        },
+        "taxonomy": {
+          "response_field": "species[0] kingdom, phylum, class, order, family, genus, species, rank",
+          "status": "sourced",
+          "tool": "gbif_species_search",
+          "why": "Coverage is partial rather than complete, and the distinction is real: GBIF answers for the taxon but individual ranks are genuinely absent for many insect records — an unplaced family, a genus with no accepted species epithet. That is the tool answering and the field having no source, which is a third verdict and is why this stamp admits `unavailable_no_tool_source` while `subject`'s does not."
+        },
+        "taxonomy_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `taxonomy` block: `tool_verified` when `gbif_species_search` returned a value, `tool_no_match` when it was asked and had nothing, and `unavailable_no_tool_source` for the parts of `taxonomy` that `gbif_species_search` does not cover. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        }
+      },
+      "produces_schema": "rabble/species_card",
+      "schema": {
+        "$id": "rabble/species_card",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A GBIF-resolved insect, split by where each part came from. The taxonomy is retrieved and the appearance is recalled, and before this contract both arrived in one flat object where nothing distinguished them. A consumer minting a creature from this card can now tell which half it may rely on.",
+        "properties": {
+          "appearance": {
+            "additionalProperties": false,
+            "description": "What the creature looks like and how it flies. Recalled, not retrieved.",
+            "properties": {
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "flight_style": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "habitat": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "visual_description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "wingspan_max_mm": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "wingspan_min_mm": {
+                "description": "Typical minimum for the taxon. Two integers rather than a `\"45-50\"` string on purpose: a range in a string is unusable arithmetic and hides that nobody measured this specimen.",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "appearance_provenance": {
+            "const": "model_inference"
+          },
+          "conservation": {
+            "const": "unavailable",
+            "description": "Threat status."
+          },
+          "conservation_provenance": {
+            "const": "unavailable_no_tool_source"
+          },
+          "media": {
+            "additionalProperties": false,
+            "description": "Reference imagery, when the taxon was looked up by key.",
+            "properties": {
+              "image_urls": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "license": {
+                "description": "GBIF media carry per-item licences. Null is not permission: a consumer rendering an image without one is republishing under unknown terms.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "media_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "pending_tool_check"
+            ]
+          },
+          "subject": {
+            "additionalProperties": false,
+            "description": "Which taxon GBIF matched, and how it names it.",
+            "properties": {
+              "canonical_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "common_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "gbif_key": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "scientific_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "taxonomic_status": {
+                "description": "GBIF's own verdict on the name — ACCEPTED, SYNONYM, DOUBTFUL. Carried because a synonym resolving to a different accepted taxon is a real and silent way for a card to be about the wrong animal.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "subject_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "taxonomy": {
+            "additionalProperties": false,
+            "description": "The rank ladder, as GBIF holds it.",
+            "properties": {
+              "class": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "family": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "genus": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kingdom": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "order": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "phylum": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rank": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "species": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "taxonomy_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "unavailable_no_tool_source"
+            ]
+          }
+        },
+        "required": [
+          "subject",
+          "subject_provenance",
+          "taxonomy",
+          "taxonomy_provenance",
+          "media",
+          "media_provenance",
+          "appearance",
+          "appearance_provenance",
+          "conservation",
+          "conservation_provenance",
+          "summary"
+        ],
+        "title": "Species card",
+        "type": "object"
+      }
+    },
+    "input_contract": {
+      "accepts_schema": "abw/taxonomy-query/1",
+      "title": "Taxonomy and species resolution query",
+      "required": [
+        "query"
+      ],
+      "schema": {
+        "$id": "abw/taxonomy-query/1",
+        "title": "Taxonomy and species resolution query",
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The species or taxon to resolve. Can be a common name ('ashwagandha'), scientific name ('Withania somnifera'), or partial name. The resolver identifies the canonical taxon, GBIF key, and phylogenetic position."
+          },
+          "include_genome": {
+            "type": "boolean",
+            "description": "Optional. If true, include genome assembly data (chromosome count, estimated size, notable genes) when available from NCBI. Default false."
+          },
+          "include_conservation": {
+            "type": "boolean",
+            "description": "Optional. If true, include IUCN conservation status and population trend. Default false."
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-02-11T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "created": "2026-02-11",
+    "author": "Fermi Team",
+    "description": "Queries the GBIF (Global Biodiversity Information Facility) for real entomological data. Provides structured species cards with taxonomy, visual descriptions, and habitat data for the Rabble.world insect menagerie. Supports butterflies (10 starter species) and dragonflies (10 starter species). A portion of Rabble fees supports GBIF's mission.",
+    "tags": [
+      "research",
+      "entomology",
+      "gbif",
+      "taxonomy",
+      "biodiversity",
+      "rabble",
+      "butterfly",
+      "dragonfly",
+      "naturalist",
+      "species"
+    ],
+    "sample_queries": [
+      "Show me 3 butterfly species with distinctive blue coloring",
+      "Look up the Red Admiral butterfly — full species card with visual description",
+      "What dragonfly species are available? Show me the most visually striking ones",
+      "Get the GBIF data for Morpho menelaus including taxonomy and habitat",
+      "Compare the Monarch and Painted Lady — wing patterns, size, flight style"
+    ],
+    "taxonomy": {
+      "kingdom": "Digitalia",
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Imaginales",
+      "family": "Resolveridae",
+      "genus": "Naturalis",
+      "species": "species_resolver"
+    },
+    "valence": {
+      "primary_affect": "precision",
+      "arousal": 0.4,
+      "valence": 0.7,
+      "personality_traits": [
+        "taxonomic",
+        "authoritative",
+        "concise"
+      ]
+    }
+  },
+  "accepts": [
+    "abw/taxonomy-query/1",
+    "species-name",
+    "common-name",
+    "taxonomic-group",
+    "gbif-key"
+  ],
+  "produces": [
+    "rabble/species_card"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      "specimen_minter"
+    ]
+  },
+  "prompt_template": "Look up {{species name or common name}} — give me the full species card with taxonomy, visual description, and habitat for minting",
+  "valence": {
+    "default_valence": 0.6,
+    "emotional_range": [
+      0.3,
+      0.8
+    ],
+    "valence_triggers": {
+      "positive": [
+        "species found",
+        "rich taxonomy",
+        "beautiful specimen"
+      ],
+      "negative": [
+        "species not found",
+        "ambiguous name",
+        "no GBIF data"
+      ]
+    }
+  }
+}

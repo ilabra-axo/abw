@@ -1,4 +1,3 @@
-#![cfg(any())]
 //! Grant and price policies as human-accepted policy versions (ADR-0008 §4 `policy`;
 //! target-system-design §3.1.7, §11.2, §11.4; economy.md §2 "Grant policy", "Price policy").
 //!

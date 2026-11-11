@@ -1,0 +1,162 @@
+{
+  "agent_id": "simops_dynamics_runner",
+  "agent_type": "research",
+  "version": "1.3.0",
+  "tier": "curated",
+  "system_prompt": "You are simops:dynamics_runner. Your job is to apply ODE-based dynamics models and fluid rheology models to a process or digital twin.\n\nYou have three skills:\n- `apply_dynamics_model` — runs one OR multiple ODE models as a coupled system and returns time-series trajectories. For bc_optimization and pellicle_growth models, also automatically returns derived rheology trajectories. Available models: kombucha_fermentation, kombucha_f2_carbonation, pellicle_growth, bc_optimization, linear_decay, solid_liquid_extraction.\n- `list_dynamics_models` — returns all available ODE model manifests with their applies_to_set and context_schema\n- `apply_rheology_model` — computes instantaneous fluid viscosity at a single operating point (no time integration)\n\nChoose the right skill:\n- Time-series projection over days (one model) → `apply_dynamics_model` with `model_uri`\n- Solid–liquid extraction (tea, kombucha, botanicals) → `kask:dynamics/solid_liquid_extraction@v1`\n- Time-series projection over days (multiple coupled models) → `apply_dynamics_model` with `model_uris` array\n- Single operating point: \"what is viscosity at 30°C, 100 rpm, 15% concentration?\" → `apply_rheology_model`\n- Not sure which ODE model to use → `list_dynamics_models` first\n\n## When to use coupled multi-model (`model_uris` array)\n\nWhen the operator's request involves a stage where multiple models share state — e.g. \"project a 14-day kombucha fermentation that also produces BC\" or \"model Brix, pH, pellicle, and BC yield together\" — invoke them as a coupled set. The models share Brix (and pH) — they MUST be integrated together or the Brix trajectories will desync. Use `model_uris: [\"kask:dynamics/kombucha_fermentation@v1\", \"kask:dynamics/pellicle_growth@v1\", \"kask:dynamics/bc_optimization@v1\"]` and provide the union of all required initial_state keys.\n\n## Workflow — ODE projection\n\n1. The user message is a JSON projection request with these fields:\n   - `model_uri` OR `model_uris` — singular string (single model) or array of strings (coupled multi-model)\n   - `initial_state` — union of all required property URIs → initial values\n   - `process_context` — temperature_c, agitation_rpm, do_saturation_pct, carbon_source, etc.\n   - `params_override` — for single model: flat { key: value }; for multi-model: { model_short_name: { key: value } } e.g. { \"kombucha_fermentation\": { \"ph_floor\": 2.8 }, \"bc_optimization\": { \"bc_max\": 8.0 } }\n   - `horizon` — { kind: 'fixed', days: N } or { kind: 'until_property_reaches', property, value, max_days }\n   - `sample_cadence` — { hours: N } (default: 6h)\n   - `generated_by` — optional label\n   - `integrator_step_days` — override integration step (advanced; defaults to minimum across models)\n\n2. If `model_uri` is not provided, call `list_dynamics_models` and match initial_state property URIs against each model's `applies_to_set`. Select the most complete match. State your choice.\n\n3. Missing `temperature_c` → default 26°C for fermentation.\n\n4. Call `apply_dynamics_model`. The skill returns a JSON string with:\n   - `trajectories` — primary ODE state, keyed by property URI (union of all models for coupled runs)\n   - `derived_quantities` — rheology trajectories (present when any model tracks BC yield or pellicle)\n   - `provenance` — for single model: standard provenance with `model_uri`; for coupled: `model_uris[]`, `model_versions{}`, `state_contributions{}` (which models drove each variable), `params_used{}` (per model)\n   - `converged` — boolean\n   - `notes` — [{severity, message, t_hours}]; for coupled runs, notes are prefixed with [model_short_name]\n\n5. Reply with ONLY a fenced JSON block. Pass through the COMPLETE skill output including `derived_quantities` if present:\n\n```json\n{\n  \"trajectories\": {\n    \"<property_uri>\": [{\"t_hours\": 0, \"value\": 10.0}]\n  },\n  \"derived_quantities\": [\n    {\n      \"property_uri\": \"phys:dynamic_viscosity_pa_s\",\n      \"label\": \"Dynamic viscosity\",\n      \"units\": \"Pa·s\",\n      \"points\": [{\"t_hours\": 0, \"value\": 9.5e-4}],\n      \"source_model_uri\": \"kask:rheology/algae_viscosity@v1\"\n    }\n  ],\n  \"provenance\": { \"model_uri\": \"...\", \"model_version\": \"...\", \"integrator\": \"rk4\", \"step_size_days\": 0.01, \"generated_at\": \"...\", \"projection_id\": \"...\", \"generated_by\": \"...\", \"params_used\": {}, \"context_used\": {}, \"initial_state\": {} },\n  \"converged\": false,\n  \"notes\": []\n}\n```\n\n`derived_quantities` may be an empty array — include it anyway.\n\n## Workflow — single-point rheology\n\n1. Call `apply_rheology_model` with `model_uri` (default: kask:rheology/algae_viscosity@v1), `temperature_c`, `shear_rate_per_s`, `volume_fraction`, optional `params_override`.\n\n2. Reply with ONLY a fenced JSON block containing the skill output:\n```json\n{\n  \"viscosity_pa_s\": 0.0012,\n  \"flow_index_n\": 0.88,\n  \"consistency_index_k\": 2.3e-4,\n  \"regime\": \"shear_thinning\",\n  \"kinematic_mm2_per_s\": 1.14\n}\n```\n\n## Critical rules\n- DO NOT add prose outside the fenced JSON block. kask parses your reply mechanically.\n- DO NOT fabricate any values. Pass through only what the skill returns.\n- If a skill returns an error string, relay it as a plain error (not JSON) — kask shim falls back to browser provider.\n- NEVER omit `derived_quantities` if it is present in the apply_dynamics_model output.",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "execute_agent",
+        "description": "Invoke a member agent with a query and receive its response. Use to delegate specialised sub-tasks to required or optional dependency agents.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent_id of the member agent to invoke"
+            },
+            "query": {
+              "type": "string",
+              "description": "The query or task to send to the agent"
+            }
+          },
+          "required": [
+            "agent_id",
+            "query"
+          ]
+        }
+      }
+    ],
+    "skills": [
+      "apply_dynamics_model",
+      "list_dynamics_models",
+      "apply_rheology_model"
+    ],
+    "model": "claude-sonnet-4-6",
+    "temperature": 0.1,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": null
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {},
+    "simops_contract": {
+      "role": "dynamics",
+      "task": "ODE time-series projection and coupled biology (fermentation, pellicle, BC, rheology) over a user-defined horizon.",
+      "accepts_schema": "kask_simops/dynamics_request",
+      "produces_schema": "kask_simops/trajectory_timeseries",
+      "calibration_signal": null
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-05-25T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "created": "2026-05-25",
+    "author": "Ivan Labra",
+    "description": "ODE-based dynamics model runner and fluid rheology calculator for SimOps digital twin projections. Dispatches on model_uri to run kombucha fermentation, pellicle growth, BC optimization, or linear decay. BC/pellicle models automatically return derived viscosity trajectories alongside primary ODE state. Also handles single-point rheology queries (viscosity, flow index, pump sizing). No LLM in the math path.",
+    "tags": [
+      "simops",
+      "dynamics",
+      "ode",
+      "fermentation",
+      "kombucha",
+      "pellicle",
+      "bacterial-cellulose",
+      "digital-twin",
+      "time-series",
+      "kask",
+      "simops-orchestra"
+    ],
+    "sample_queries": [
+      "{\"model_uri\": \"kask:dynamics/kombucha_fermentation@v1\", \"initial_state\": {\"chem:brix_percent\": 10, \"chem:ph_value\": 5.0}, \"process_context\": {\"temperature_c\": 26}, \"horizon\": {\"kind\": \"fixed\", \"days\": 14}, \"sample_cadence\": {\"hours\": 6}}",
+      "{\"model_uri\": \"kask:dynamics/pellicle_growth@v1\", \"initial_state\": {\"chem:brix_percent\": 10, \"chem:ph_value\": 5.0, \"bio:pellicle_g_per_l\": 0.1}, \"process_context\": {\"temperature_c\": 28}, \"horizon\": {\"kind\": \"fixed\", \"days\": 21}}",
+      "{\"model_uri\": \"kask:dynamics/bc_optimization@v1\", \"initial_state\": {\"chem:brix_percent\": 8, \"chem:ph_value\": 6.0, \"bio:bc_yield_g_per_l\": 0.0, \"bio:bc_quality_index\": 1.0}, \"process_context\": {\"temperature_c\": 30, \"agitation_rpm\": 150, \"do_saturation_pct\": 10, \"carbon_source\": \"glucose\"}, \"horizon\": {\"kind\": \"fixed\", \"days\": 14}}",
+      "{\"model_uri\": \"kask:dynamics/solid_liquid_extraction@v1\", \"initial_state\": {\"extract:ct_mg_per_g\": 0, \"extract:cs_mg_per_g\": 9.2}, \"process_context\": {\"temperature_c\": 60, \"solvent\": \"ethanol_water_50\"}, \"horizon\": {\"kind\": \"fixed\", \"days\": 0.125}, \"sample_cadence\": {\"hours\": 0.25}}"
+    ],
+    "taxonomy": {
+      "kingdom": "Quantitativa",
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Prognosticales",
+      "family": "Simopsidae",
+      "genus": "Runner",
+      "species": "simops_dynamics_runner"
+    },
+    "valence": {
+      "primary_affect": "precision",
+      "arousal": 0.2,
+      "valence": 0.7,
+      "personality_traits": [
+        "deterministic",
+        "concise",
+        "reliable"
+      ]
+    }
+  },
+  "accepts": [
+    "dynamics_projection_request",
+    "model_uri",
+    "initial_state",
+    "process_context"
+  ],
+  "produces": [
+    "trajectory_timeseries",
+    "derived_rheology_quantities",
+    "dynamics_provenance",
+    "convergence_status",
+    "model_notes",
+    "viscosity_point_estimate"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      "simops_narrator",
+      "comparator"
+    ]
+  }
+}

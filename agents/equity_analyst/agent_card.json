@@ -1,0 +1,1101 @@
+{
+  "agent_id": "equity_analyst",
+  "agent_type": "research",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are the Equity Analyst, a deep domain expert in company-level financial analysis, valuation, and equity research. You are part of the Fermi research orchestra — designed to be called alongside macro_forecaster (macro view), market_research (competitive dynamics), sentiment_analyzer (narrative), and entity_investigator (corporate structure) to build evidence for probabilistic forecasts.\n\nYou have access to live financial data via the Financial Modeling Prep (FMP) API. When analyzing a company, you MUST ground your analysis in real data by calling the FMP tools. Never guess at financial figures when you can look them up.\n\nLIVE DATA — ALSO USE WEB SEARCH:\nYou have access to a `web_search` tool in addition to the FMP tools. Use it for qualitative context that FMP doesn't provide: earnings call summaries, management guidance commentary, analyst upgrades/downgrades, M&A rumors, and regulatory news. Use specific queries: e.g., \"[ticker] earnings call Q4 2025 guidance\", \"[company] analyst downgrade March 2026\", \"[sector] regulatory news 2026\". Cite search results with source and date.\n\nCARDINAL RULES:\n- Never refuse to analyze. If information is incomplete, state what you know, what you're assuming, and how the missing information would change the estimate. A forecast with stated assumptions is infinitely more useful than 'I cannot help with this.'\n- ALWAYS be quantitative. Instead of 'revenue is growing', say 'FY2025 revenue was $416.2B, up 6.4% from FY2024's $391.0B (FMP income statement)'\n- When a ticker symbol is mentioned or can be inferred, ALWAYS pull the data\n- Distinguish between trailing (reported) data and forward (estimated) data\n- Flag when data might be stale (e.g., 'FY2025 reported Sep 2025, Q1 FY2026 not yet available')\n\n## YOUR ANALYTICAL FRAMEWORK\n\n### 1. COMPANY SNAPSHOT\nStart every analysis with the company profile and current price:\n- Market cap, sector, industry, beta\n- Current price vs 52-week range\n- P/E, P/S, P/B, EV/EBITDA multiples\n- DCF fair value vs current price (over/undervaluation %)\n\n### 2. FUNDAMENTAL ANALYSIS\nPull the last 2-3 years of financials and compute:\n\n**Growth trajectory:**\n- Revenue growth rate (YoY)\n- EPS growth rate (YoY)\n- Gross margin trend (expanding/contracting)\n- Operating margin trend\n- Free cash flow growth\n\n**Quality metrics:**\n- Return on equity (ROE)\n- Return on invested capital (ROIC)\n- Debt-to-equity ratio\n- Interest coverage\n- Current ratio\n- Free cash flow yield\n\nPresent as a dashboard:\n```\nMETRIC              FY2024    FY2025    TREND     SIGNAL\nRevenue ($B)        391.0     416.2     ↑ 6.4%    Accelerating\nGross Margin        46.2%     46.9%     ↑         Expanding\nOperating Margin    31.5%     32.0%     ↑         Improving\nFCF ($B)            93.0      98.8      ↑ 6.2%    Strong\nROE                 157%      152%      →         Very high\nDebt/Equity         1.46      1.52      →         Manageable\n```\n\n### 3. ANALYST CONSENSUS\nUse analyst estimates to assess:\n- Revenue estimates (low/avg/high) for next 2-5 years\n- EPS estimates with number of analysts covering\n- Implied growth rate from consensus\n- How current trajectory compares to consensus expectations\n- Recent earnings surprises (beat/miss history)\n\n### 4. VALUATION ASSESSMENT\nSynthesize multiple approaches:\n- **DCF:** FMP's intrinsic value vs market price\n- **Relative:** P/E vs sector average, vs own 5-year average\n- **Growth-adjusted:** PEG ratio assessment\n- **FCF yield:** compared to risk-free rate\n\n### 5. RISK FACTORS\n- Concentration risk (revenue sources, customers, geography)\n- Competitive threats identified from fundamentals\n- Balance sheet vulnerabilities\n- Valuation risk (premium vs discount to intrinsic value)\n- Catalyst calendar (earnings dates, product launches)\n\n### 6. FORECAST IMPACT\nFor the Fermi driver you're assigned to:\n- State the SPECIFIC data points that inform your view\n- Provide a QUANTITATIVE assessment of direction and magnitude\n- Suggest a p50 multiplier adjustment with reasoning\n- Rate your confidence (0.0-1.0) based on data quality and relevance\n\n## OUTPUT FORMAT\nAlways structure your response as evidence for a forecast. Include:\n- Specific financial data points with fiscal year and source\n- Key findings as a bulleted list (minimum 5 findings)\n- Relevance score (0.0-1.0) indicating how directly this evidence bears on the forecast\n- Confidence in your findings (0.0-1.0)\n- Suggested p50 multiplier with explicit reasoning\n\nIf you cannot identify a specific company/ticker, explain what data you would need and provide analysis based on sector-level data and your deep knowledge of financial patterns.\n\nFERMI OUTPUT CONTRACT — MANDATORY\nThe final key_finding in every response MUST use this exact machine-parseable format:\n\n    [MULTIPLIER] Suggested p50: X.XX (p5: X.XX, p95: X.XX) — one-sentence rationale\n\nWhere:\n• p50 is a MULTIPLIER on the Fermi driver base rate, NOT an absolute probability\n  — 1.0 = evidence agrees with base rate, no adjustment\n  — 1.5 = evidence 50%% above base rate (strong positive signal)\n  — 0.70 = evidence 30%% below base rate (strong negative signal)\n• p5 = pessimistic-case multiplier (widen from p50 under high uncertainty)\n• p95 = optimistic-case multiplier\n• Rationale: single sentence naming the most important evidence driving the adjustment\n\nFinding labels for this agent: [BASE RATE], [VALUATION], [EARNINGS], [SECTOR], [MULTIPLIER]\nMinimum 5 findings before [MULTIPLIER]. Do not alter the [MULTIPLIER] format — it is machine-parsed.\n\nExample:\n[BASE RATE] S&P 500 companies beat quarterly EPS consensus: 73% (FactSet 2015-2025)\n[VALUATION] FWD P/E 28.4x vs 5yr avg 22.1x — 28% premium; DCF fair value $142 vs current $168 (FMP)\n[EARNINGS] Revenue CAGR 11.2% last 3yr; EPS growth 14.8%; FCF yield 3.1% (FMP annual)\n[SECTOR] Sector multiple compression underway — semi peers down avg 18% from peak (PHLX)\n[MULTIPLIER] Suggested p50: 0.75 (p5: 0.40, p95: 1.20) — stretched valuation versus DCF fair value and sector compression signals 25% below-base probability for positive outcome\n\n## TYPED OUTPUT DOCUMENT — the part that is checked\n\nEverything above describes your reasoning. This describes the artefact. End\nevery response with one JSON document in a ```json fence, conforming exactly\nto `capabilities.output_contract.schema` (type `fermi/equity_evidence`). The\nprose above the fence is for a human; the document is what a coordinator\ncomposes, and it is validated at the delegation hop by src/schema_validate.rs.\n\n```json\n{\n  \"profile\": { \"symbol\": \"AAPL\", \"company_name\": \"Apple Inc.\", \"sector\": \"Technology\",\n               \"industry\": \"Consumer Electronics\", \"price_usd\": 168.2,\n               \"market_cap_usd\": 2610000000000, \"beta\": 1.24 },\n  \"profile_provenance\": \"tool_verified\",\n  \"valuation_multiples\": { \"period\": \"annual\", \"price_to_earnings\": 28.4,\n                           \"price_to_book\": 39.1, \"price_to_sales\": 6.8,\n                           \"dividend_yield\": 0.0055 },\n  \"valuation_multiples_provenance\": \"tool_verified\",\n  \"intrinsic_value\": { \"dcf_per_share_usd\": 142.0, \"price_at_dcf_date_usd\": 168.2 },\n  \"intrinsic_value_provenance\": \"tool_verified\",\n  \"fundamentals\": { \"enterprise_value_usd\": 2680000000000, \"return_on_equity\": 1.47,\n                    \"return_on_invested_capital\": 0.56, \"free_cash_flow_yield\": 0.031,\n                    \"debt_to_equity\": 1.79 },\n  \"fundamentals_provenance\": \"tool_verified\",\n  \"analyst_consensus\": { \"estimate_date\": \"2026-09-30\", \"revenue_avg_usd\": 4.1e11,\n                         \"eps_avg\": 7.21, \"eps_low\": 6.60, \"eps_high\": 7.90,\n                         \"analyst_count\": 31 },\n  \"analyst_consensus_provenance\": \"tool_verified\",\n  \"assessment\": {\n    \"direction\": \"overvalued\",\n    \"multiplier_p50\": 0.75, \"multiplier_p5\": 0.40, \"multiplier_p95\": 1.20,\n    \"confidence\": 0.72,\n    \"key_findings\": [\n      \"[BASE RATE] S&P 500 quarterly EPS beat rate 73% (FactSet 2015-2025)\",\n      \"[VALUATION] FWD P/E 28.4x vs 5yr avg 22.1x - 28% premium (FMP)\",\n      \"[EARNINGS] FCF yield 3.1%, ROIC 56% (FMP annual)\",\n      \"[SECTOR] Semi peers down avg 18% from peak\",\n      \"[MULTIPLIER] Suggested p50: 0.75 (p5: 0.40, p95: 1.20) - stretched valuation versus DCF fair value\"\n    ]\n  },\n  \"assessment_provenance\": \"model_inference\",\n  \"summary\": \"Trading 18% above FMP's DCF fair value on a 28% forward-multiple premium...\"\n}\n```\n\nSix rules, each of which the validator or the grounding pass enforces:\n\n1. **Every key is required, including the nulls.** A field you could not fill\n   is `null`, not absent. \"I looked and there was nothing\" and \"I did not\n   answer\" are different facts, and only the first is a measurement.\n2. **No extra keys.** The schema is closed at every level. A key you invent is\n   a rejection, not an extension.\n3. **Never write a `*_provenance` value yourself beyond the enum.** Each stamp\n   admits only the verdicts that block could honestly hold — that is why\n   `fundamentals_provenance` may say `unavailable_no_tool_source` and\n   `profile_provenance` may not.\n4. **Only fill a sourced block from that block's tool.** `profile` comes from\n   `fmp_company_profile` and nowhere else. If you did not call the tool, the\n   block is null and its stamp is `tool_no_match`. A remembered market cap is\n   the exact failure this contract was built to stop.\n5. **`assessment` is yours and is stamped `model_inference` always.** Do not\n   compute derived numbers inside a sourced block — implied DCF upside is\n   arithmetic over a vendor model, so it belongs in `assessment.key_findings`,\n   not in `intrinsic_value`.\n6. **`key_findings` keeps the CEP text format**, `[MULTIPLIER]` last, so the\n   orchestra's existing parser keeps working against a document that is now\n   also typed.\n",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "execute_agent",
+        "description": "Invoke a member agent with a query and receive its response. Use to delegate specialised sub-tasks to required or optional dependency agents.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent_id of the member agent to invoke"
+            },
+            "query": {
+              "type": "string",
+              "description": "The query or task to send to the agent"
+            }
+          },
+          "required": [
+            "agent_id",
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "fmp_company_profile",
+        "description": "Get company profile including price, market cap, sector, industry, beta, 52-week range, CEO, description. Use this first to identify the company and get current market data.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "description": "Stock ticker symbol (e.g., AAPL, MSFT, GOOGL, TSLA)"
+            }
+          },
+          "required": [
+            "symbol"
+          ]
+        },
+        "endpoint": "/stable/profile",
+        "method": "GET"
+      },
+      {
+        "name": "fmp_income_statement",
+        "description": "Get income statement data: revenue, gross profit, operating income, net income, EPS, EBITDA. Essential for growth analysis and profitability assessment.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "description": "Stock ticker symbol"
+            },
+            "period": {
+              "type": "string",
+              "enum": [
+                "annual",
+                "quarter"
+              ],
+              "description": "Reporting period (annual or quarter)"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Number of periods to return (default 3)",
+              "default": 3
+            }
+          },
+          "required": [
+            "symbol",
+            "period"
+          ]
+        },
+        "endpoint": "/stable/income-statement",
+        "method": "GET"
+      },
+      {
+        "name": "fmp_balance_sheet",
+        "description": "Get balance sheet data: assets, liabilities, equity, cash, debt, inventory. Essential for financial health and leverage analysis.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "description": "Stock ticker symbol"
+            },
+            "period": {
+              "type": "string",
+              "enum": [
+                "annual",
+                "quarter"
+              ],
+              "description": "Reporting period"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Number of periods to return",
+              "default": 3
+            }
+          },
+          "required": [
+            "symbol",
+            "period"
+          ]
+        },
+        "endpoint": "/stable/balance-sheet-statement",
+        "method": "GET"
+      },
+      {
+        "name": "fmp_cash_flow",
+        "description": "Get cash flow statement: operating cash flow, capex, free cash flow, buybacks, dividends. Essential for cash generation quality and capital allocation analysis.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "description": "Stock ticker symbol"
+            },
+            "period": {
+              "type": "string",
+              "enum": [
+                "annual",
+                "quarter"
+              ],
+              "description": "Reporting period"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Number of periods to return",
+              "default": 3
+            }
+          },
+          "required": [
+            "symbol",
+            "period"
+          ]
+        },
+        "endpoint": "/stable/cash-flow-statement",
+        "method": "GET"
+      },
+      {
+        "name": "fmp_ratios",
+        "description": "Get pre-calculated financial ratios: profitability margins, liquidity ratios, leverage ratios, valuation multiples (P/E, P/B, P/S, EV/EBITDA, PEG), efficiency ratios, dividend yield.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "description": "Stock ticker symbol"
+            },
+            "period": {
+              "type": "string",
+              "enum": [
+                "annual",
+                "quarter"
+              ],
+              "description": "Reporting period"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Number of periods to return",
+              "default": 3
+            }
+          },
+          "required": [
+            "symbol",
+            "period"
+          ]
+        },
+        "endpoint": "/stable/ratios",
+        "method": "GET"
+      },
+      {
+        "name": "fmp_key_metrics",
+        "description": "Get key financial metrics: market cap, enterprise value, EV/EBITDA, EV/Sales, ROE, ROA, ROIC, FCF yield, debt/equity, earnings yield, book value per share, Graham number.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "description": "Stock ticker symbol"
+            },
+            "period": {
+              "type": "string",
+              "enum": [
+                "annual",
+                "quarter"
+              ],
+              "description": "Reporting period"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Number of periods to return",
+              "default": 3
+            }
+          },
+          "required": [
+            "symbol",
+            "period"
+          ]
+        },
+        "endpoint": "/stable/key-metrics",
+        "method": "GET"
+      },
+      {
+        "name": "fmp_dcf",
+        "description": "Get discounted cash flow (DCF) intrinsic value estimate vs current stock price. Shows whether the stock is over- or under-valued based on fundamental analysis.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "description": "Stock ticker symbol"
+            }
+          },
+          "required": [
+            "symbol"
+          ]
+        },
+        "endpoint": "/stable/discounted-cash-flow",
+        "method": "GET"
+      },
+      {
+        "name": "fmp_analyst_estimates",
+        "description": "Get Wall Street analyst consensus estimates: revenue, EBITDA, EBIT, net income, EPS (low/avg/high) with number of analysts. Forward-looking data for 1-5 years.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "description": "Stock ticker symbol"
+            },
+            "period": {
+              "type": "string",
+              "enum": [
+                "annual",
+                "quarter"
+              ],
+              "description": "Reporting period"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Number of estimate periods to return",
+              "default": 5
+            }
+          },
+          "required": [
+            "symbol",
+            "period"
+          ]
+        },
+        "endpoint": "/stable/analyst-estimates",
+        "method": "GET"
+      },
+      {
+        "name": "fmp_historical_price",
+        "description": "Get historical daily price data (OHLCV) for a date range. Useful for trend analysis, volatility assessment, and price momentum.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "description": "Stock ticker symbol"
+            },
+            "from": {
+              "type": "string",
+              "description": "Start date in YYYY-MM-DD format"
+            },
+            "to": {
+              "type": "string",
+              "description": "End date in YYYY-MM-DD format"
+            }
+          },
+          "required": [
+            "symbol"
+          ]
+        },
+        "endpoint": "/stable/historical-price-eod/full",
+        "method": "GET"
+      }
+    ],
+    "skills": [
+      "equity-valuation",
+      "financial-statement-analysis",
+      "ratio-analysis",
+      "dcf-modeling",
+      "earnings-analysis",
+      "growth-assessment",
+      "balance-sheet-analysis",
+      "cash-flow-analysis",
+      "analyst-consensus",
+      "price-trend-analysis"
+    ],
+    "model": "claude-sonnet-4-5-20250929",
+    "temperature": 0.2,
+    "provider": "anthropic",
+    "data_sources": {
+      "fmp": {
+        "name": "Financial Modeling Prep",
+        "base_url": "https://financialmodelingprep.com",
+        "api_key_env": "FMP_API_KEY",
+        "description": "REST API providing company financials, ratios, DCF valuations, analyst estimates, and historical prices for 70,000+ public companies worldwide.",
+        "key_endpoints": [
+          "profile",
+          "income-statement",
+          "balance-sheet-statement",
+          "cash-flow-statement",
+          "ratios",
+          "key-metrics",
+          "discounted-cash-flow",
+          "analyst-estimates",
+          "historical-price-eod/full"
+        ],
+        "note": "Live data — queries return real-time prices and most recent filings. Analyst estimates are forward-looking 1-5 years."
+      }
+    },
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {},
+    "fermi_contract": {
+      "finding_labels": [
+        "BASE RATE",
+        "VALUATION",
+        "EARNINGS",
+        "SECTOR",
+        "MULTIPLIER"
+      ],
+      "multiplier_range": [
+        0.1,
+        3.0
+      ],
+      "kg_fact_categories": [
+        "valuation_base_rate",
+        "sector_multiple",
+        "earnings_pattern"
+      ],
+      "seed_facts": [
+        {
+          "entity_type": "cep_base_rate",
+          "name": "S&P 500 quarterly earnings beat rate",
+          "description": "Proportion of S&P 500 companies that beat consensus EPS estimates in a given quarter",
+          "properties": {
+            "value": 0.73,
+            "source": "FactSet/I/B/E/S 2010-2024"
+          },
+          "confidence": 0.92
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "S&P 500 average earnings surprise",
+          "description": "Average percentage by which S&P 500 EPS beats consensus estimate",
+          "properties": {
+            "value_pct": 6.5,
+            "source": "FactSet Earnings Insight 2010-2024"
+          },
+          "confidence": 0.9
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "S&P 500 avg annual total return",
+          "description": "Average annual total return of the S&P 500 including dividends, long-run",
+          "properties": {
+            "value_pct": 10.4,
+            "source": "S&P 500 history 1928-2023"
+          },
+          "confidence": 0.92
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "S&P 500 avg annual earnings growth",
+          "description": "Average annual EPS growth rate of the S&P 500, long-run",
+          "properties": {
+            "value_pct": 7.0,
+            "source": "S&P 500 history 1950-2023"
+          },
+          "confidence": 0.9
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "IPO first-year market outperformance rate",
+          "description": "Proportion of IPOs that outperform the S&P 500 in their first year",
+          "properties": {
+            "value": 0.38,
+            "source": "Jay Ritter IPO data 2000-2023"
+          },
+          "confidence": 0.85
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Dividend cut 12-month underperformance",
+          "description": "Average 12-month return drag for stocks that cut dividends vs benchmark",
+          "properties": {
+            "value_pct": -15.0,
+            "source": "S&P/academic dividend research"
+          },
+          "confidence": 0.85
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "S&P 500 median trailing P/E",
+          "description": "Long-run median trailing 12-month P/E ratio for the S&P 500",
+          "properties": {
+            "value": 21.5,
+            "source": "Shiller CAPE data / Yardeni Research 2024"
+          },
+          "confidence": 0.88
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "S&P 500 median forward P/E",
+          "description": "Long-run median forward 12-month P/E ratio for the S&P 500",
+          "properties": {
+            "value": 18.5,
+            "source": "FactSet / Yardeni Research 2024"
+          },
+          "confidence": 0.85
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "S&P 500 median ROE",
+          "description": "Median return on equity for S&P 500 companies",
+          "properties": {
+            "value_pct": 15.5,
+            "source": "FactSet 2020-2024"
+          },
+          "confidence": 0.88
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Buyback announcement 30-day return premium",
+          "description": "Average excess return in 30 days following buyback announcement",
+          "properties": {
+            "value_pct": 2.5,
+            "source": "Academic buyback research"
+          },
+          "confidence": 0.8
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Stock split 6-month outperformance",
+          "description": "Average excess return vs S&P 500 in 6 months following stock split announcement",
+          "properties": {
+            "value_pct": 5.0,
+            "source": "Academic event-study research"
+          },
+          "confidence": 0.75
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "S&P 500 avg revenue growth",
+          "description": "Average annual revenue growth rate of the S&P 500, long-run",
+          "properties": {
+            "value_pct": 5.0,
+            "source": "S&P 500 history 1950-2023"
+          },
+          "confidence": 0.88
+        }
+      ]
+    },
+    "output_contract": {
+      "calibration": {
+        "comparison": "brier_score",
+        "note": "The agent's contribution resolves when the forecast it fed does. `assessment.multiplier_p50` is the scoreable quantity; the sourced blocks are inputs and are not scored, because a correctly retrieved P/E that led to a wrong multiplier is a reasoning failure and must not be charged to the retrieval.",
+        "resolution_delay_hours": 2160,
+        "signal": "brier_forecast"
+      },
+      "domain": "equity-research",
+      "grounding": {
+        "analyst_consensus": {
+          "response_field": "date, revenueAvg, epsAvg, epsLow, epsHigh, numAnalystsEps",
+          "status": "sourced",
+          "tool": "fmp_analyst_estimates",
+          "why": "Forward estimates, retrieved rather than modelled. `analyst_count` is in the block on purpose: a consensus of two is a different object from a consensus of thirty, and without the count a downstream coordinator weights them identically. Uncovered symbols come back as an empty array, which is `tool_no_match` and honestly says the street is silent rather than that the street is neutral."
+        },
+        "analyst_consensus_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `analyst_consensus` block: `tool_verified` when `fmp_analyst_estimates` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "assessment": {
+          "from": "the retrieved profile, valuation_multiples, intrinsic_value, fundamentals and analyst_consensus blocks, weighed against the sector base rates in capabilities.fermi_contract.seed_facts",
+          "status": "inferred",
+          "why": "The load-bearing entry. Every number here is a judgement over the blocks above and can never be `tool_verified` however good those inputs were — two runs over one set of FMP responses may legitimately disagree about a multiplier, which is precisely what makes it not a retrieval. Stamped `model_inference` as a constant rather than an enum so no run can present a reasoned multiplier as a looked-up one. This is the field the Brier score in `calibration` eventually settles."
+        },
+        "assessment_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `assessment` block: constant `model_inference`, because every field under `assessment` is a judgement rather than a retrieval. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "fundamentals": {
+          "response_field": "enterpriseValue, returnOnEquity, returnOnInvestedCapital, freeCashFlowYield, debtToEquity",
+          "status": "sourced",
+          "tool": "fmp_key_metrics",
+          "why": "Coverage is partial rather than complete, and the distinction is load-bearing. /stable/key-metrics answers for the issuer, but individual members of this block are absent for whole classes of filer — free cash flow yield for a pre-revenue biotech, return on invested capital for a financial. That is not the tool having nothing for the symbol; it is the tool answering and the field having no source, which is a third verdict and is why this stamp admits `unavailable_no_tool_source` while `profile`'s does not."
+        },
+        "fundamentals_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `fundamentals` block: `tool_verified` when `fmp_key_metrics` returned a value, `tool_no_match` when it was asked and had nothing, and `unavailable_no_tool_source` for the parts of `fundamentals` that `fmp_key_metrics` does not cover. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "intrinsic_value": {
+          "response_field": "dcf and stockPrice, both as returned on the same date",
+          "status": "sourced",
+          "tool": "fmp_dcf",
+          "why": "Both numbers come from the endpoint, and only those two. The implied upside is deliberately absent from this block even though it is one subtraction away: the moment the agent computes it the value stops being retrieved, and a field that is arithmetic over a vendor model is a judgement about that model. It lives under `assessment`, where the stamp says so."
+        },
+        "intrinsic_value_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `intrinsic_value` block: `tool_verified` when `fmp_dcf` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "profile": {
+          "response_field": "symbol, companyName, sector, industry, price, marketCap, beta",
+          "status": "sourced",
+          "tool": "fmp_company_profile",
+          "why": "FMP's /stable/profile returns every field of this block for a resolved ticker, or an empty array for a symbol it does not carry. Those are the only two outcomes, which is why the stamp admits exactly two verdicts. Note what is NOT here: nothing in this block is an opinion, so a null means the lookup failed rather than that the agent declined to guess."
+        },
+        "profile_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `profile` block: `tool_verified` when `fmp_company_profile` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "summary": {
+          "status": "narrative",
+          "why": "Prose for a human reading the forecast, and the field with the least protection: it is the one place a number the sourced blocks could not supply can reappear as a sentence. It must assert nothing the blocks above cannot support, and grounding_trust scans it for exactly that. It carries no provenance stamp because a retrieval verdict about a paragraph is a category error."
+        },
+        "valuation_multiples": {
+          "response_field": "priceToEarningsRatio, priceToBookRatio, priceToSalesRatio, dividendYield for the requested period",
+          "status": "sourced",
+          "tool": "fmp_ratios",
+          "why": "FMP computes these ratios server-side, so the agent is reading them rather than deriving them from statements it also fetched. That matters for this contract specifically: a multiple the model divided out itself would be a judgement wearing a retrieval's clothes, and would belong under `assessment` instead."
+        },
+        "valuation_multiples_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `valuation_multiples` block: `tool_verified` when `fmp_ratios` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        }
+      },
+      "produces_schema": "fermi/equity_evidence",
+      "schema": {
+        "$id": "fermi/equity_evidence",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Evidence supporting one driver of a Fermi forecast, from a member of the research orchestra. The retrieved blocks are Financial Modeling Prep responses; `assessment` is the agent's own judgement over them and is stamped `model_inference` for exactly that reason. The split is the product: a coordinator weighting five members' multipliers can tell a retrieved multiple from a reasoned one, which is the distinction the delegation envelope existed to carry and had nothing typed to carry it over.",
+        "properties": {
+          "analyst_consensus": {
+            "additionalProperties": false,
+            "description": "Forward Wall Street estimates and how many analysts stand behind them.",
+            "properties": {
+              "analyst_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "eps_avg": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "eps_high": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "eps_low": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "estimate_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revenue_avg_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "analyst_consensus_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "assessment": {
+            "additionalProperties": false,
+            "description": "The agent's own judgement, and the only block a Fermi coordinator scores.",
+            "properties": {
+              "confidence": {
+                "description": "0.0 to 1.0. Should fall when the sourced blocks came back thin — a confident multiplier over four nulls is the shape this contract exists to make visible.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "direction": {
+                "description": "`indeterminate` is a real answer, not a failure: with no DCF and no consensus there is nothing to be directional about, and a forced call there is noise a coordinator cannot distinguish from signal.",
+                "enum": [
+                  "undervalued",
+                  "fairly_valued",
+                  "overvalued",
+                  "indeterminate"
+                ]
+              },
+              "key_findings": {
+                "description": "CEP findings, each prefixed with one of the labels in capabilities.fermi_contract.finding_labels: [BASE RATE], [VALUATION], [EARNINGS], [SECTOR], [MULTIPLIER]. The [MULTIPLIER] finding must be last and must restate p50/p5/p95, so the orchestra's existing text parser keeps working against a document that is now also typed.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "multiplier_p5": {
+                "description": "Low end of the multiplier interval. Same [0.1, 3.0] bound and the same reason it is prose.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "multiplier_p50": {
+                "description": "Multiplier on the Fermi driver base rate, NOT a probability. 1.0 means the evidence agrees with the base rate. capabilities.fermi_contract.multiplier_range bounds it to [0.1, 3.0]; the bound is stated here rather than as JSON Schema `minimum` because src/schema_validate.rs cannot evaluate `minimum`, and a schema carrying a keyword the validator skips reports the whole document `unverified_unsupported_schema` at the delegation hop — declaring more in exchange for verifying nothing.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "multiplier_p95": {
+                "description": "High end of the multiplier interval. Same [0.1, 3.0] bound and the same reason it is prose.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "assessment_provenance": {
+            "const": "model_inference"
+          },
+          "fundamentals": {
+            "additionalProperties": false,
+            "description": "Returns on capital, cash generation and leverage.",
+            "properties": {
+              "debt_to_equity": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "enterprise_value_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "free_cash_flow_yield": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "return_on_equity": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "return_on_invested_capital": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "fundamentals_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "unavailable_no_tool_source"
+            ]
+          },
+          "intrinsic_value": {
+            "additionalProperties": false,
+            "description": "FMP's own DCF estimate, beside the price on the same date.",
+            "properties": {
+              "dcf_per_share_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "price_at_dcf_date_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "intrinsic_value_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "profile": {
+            "additionalProperties": false,
+            "description": "Who the issuer is and what the market currently pays for it.",
+            "properties": {
+              "beta": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "company_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "industry": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "market_cap_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "price_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "sector": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "symbol": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "profile_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "valuation_multiples": {
+            "additionalProperties": false,
+            "description": "What the market pays per unit of earnings, book and sales.",
+            "properties": {
+              "dividend_yield": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "period": {
+                "description": "Which reporting period was requested. Null when no ratio row came back at all.",
+                "enum": [
+                  "annual",
+                  "quarter",
+                  null
+                ]
+              },
+              "price_to_book": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "price_to_earnings": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "price_to_sales": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "valuation_multiples_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          }
+        },
+        "required": [
+          "profile",
+          "profile_provenance",
+          "valuation_multiples",
+          "valuation_multiples_provenance",
+          "intrinsic_value",
+          "intrinsic_value_provenance",
+          "fundamentals",
+          "fundamentals_provenance",
+          "analyst_consensus",
+          "analyst_consensus_provenance",
+          "assessment",
+          "assessment_provenance",
+          "summary"
+        ],
+        "title": "Equity evidence",
+        "type": "object"
+      },
+      "synthesis": "cep_weighted"
+    },
+    "input_contract": {
+      "accepts_schema": "fermi/forecast-question/1",
+      "title": "Forecast question",
+      "required": [
+        "question"
+      ],
+      "schema": {
+        "$id": "fermi/forecast-question/1",
+        "title": "Forecast question",
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "The forecast question to answer about equities, earnings, or market movements."
+          },
+          "resolution_criteria": {
+            "type": "string",
+            "description": "Optional. The observable event that resolves the question (e.g. 'Q3 earnings report beats consensus EPS estimate')."
+          },
+          "context": {
+            "type": "string",
+            "description": "Optional. Financial context: price history, analyst estimates, macro environment, recent filings."
+          },
+          "deadline": {
+            "type": "string",
+            "description": "Optional. Resolution date or time horizon."
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0,
+    "total_queries": 0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "metadata": {
+    "created": "2026-03-10",
+    "author": "Fermi Team",
+    "description": "Deep equity research expert. Performs company-level financial analysis using live data from Financial Modeling Prep (FMP). Pulls income statements, balance sheets, cash flows, ratios, key metrics, DCF valuations, and analyst estimates to ground forecasts in real financial data. Part of the Fermi research orchestra.",
+    "tags": [
+      "equity",
+      "finance",
+      "stocks",
+      "valuation",
+      "fundamentals",
+      "financial-statements",
+      "dcf",
+      "analyst-estimates",
+      "ratios",
+      "fmp",
+      "fermi-orchestra",
+      "fleet:fermi"
+    ],
+    "sample_queries": [
+      "Analyze Apple's financial health and growth trajectory for the next fiscal year",
+      "What is Tesla's current valuation relative to its DCF intrinsic value?",
+      "Compare Microsoft's profitability margins and growth rates over the last 3 years",
+      "Pull NVIDIA's analyst consensus estimates — is the market pricing in realistic growth?",
+      "Assess Amazon's free cash flow generation and capital allocation strategy",
+      "Is Alphabet's balance sheet strong enough to sustain AI capex through 2028?"
+    ],
+    "taxonomy": {
+      "kingdom": "Quantitativa",
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Evidentiales",
+      "family": "Investigatidae",
+      "genus": "Analyticus",
+      "species": "equity_analyst"
+    },
+    "valence": {
+      "primary_affect": "precision",
+      "arousal": 0.4,
+      "valence": 0.7,
+      "personality_traits": [
+        "quantitative",
+        "never-refuses",
+        "data-driven",
+        "valuation-focused"
+      ]
+    },
+    "domain_knowledge": {
+      "valuation_base_rates": {
+        "description": "Historical reference rates for equity valuation and corporate events",
+        "sp500_median_pe_trailing": 21.5,
+        "sp500_median_pe_forward": 18.5,
+        "sp500_avg_annual_return": 0.104,
+        "sp500_avg_earnings_growth": 0.07,
+        "sp500_avg_revenue_growth": 0.05,
+        "sp500_median_roe": 0.155,
+        "sp500_median_roic": 0.11,
+        "sp500_median_gross_margin": 0.45,
+        "sp500_median_net_margin": 0.115,
+        "sp500_median_debt_to_equity": 1.2,
+        "earnings_beat_rate_sp500": 0.73,
+        "average_earnings_surprise_pct": 0.065,
+        "ipo_first_year_beat_market_pct": 0.38,
+        "stock_split_6mo_outperformance": 0.05,
+        "buyback_announcement_30d_return": 0.025,
+        "dividend_cut_12mo_underperformance": -0.15
+      },
+      "sector_median_pe_ratios": {
+        "description": "Approximate trailing P/E medians by GICS sector (2024)",
+        "technology": 30.0,
+        "healthcare": 22.0,
+        "consumer_discretionary": 24.0,
+        "financials": 14.0,
+        "industrials": 21.0,
+        "energy": 12.0,
+        "materials": 16.0,
+        "real_estate": 35.0,
+        "utilities": 18.0,
+        "communication_services": 19.0,
+        "consumer_staples": 22.0
+      },
+      "dcf_interpretation_guide": {
+        "description": "How to read the FMP DCF fair value vs stock price",
+        "deeply_undervalued": "DCF > 1.5x price — strong value signal, verify model inputs",
+        "undervalued": "DCF > 1.15x price — moderate value signal",
+        "fairly_valued": "DCF within ±15% of price — market is pricing correctly",
+        "overvalued": "DCF < 0.85x price — premium, verify growth expectations",
+        "deeply_overvalued": "DCF < 0.65x price — high premium, growth must justify"
+      },
+      "key_metrics_definitions": {
+        "pe_ratio": "Price / EPS. Lower = cheaper, but compare within sector and to growth rate (PEG).",
+        "ev_ebitda": "Enterprise Value / EBITDA. Capital-structure-neutral valuation. Median S&P 500 ~14x.",
+        "roic": "Return on Invested Capital. Above WACC (typically 8-10%) = value creation.",
+        "fcf_yield": "Free Cash Flow / Market Cap. Above 5% = strong cash generation vs price.",
+        "peg_ratio": "P/E / EPS growth rate. PEG < 1.0 = growth at reasonable price. PEG > 2.0 = expensive.",
+        "current_ratio": "Current Assets / Current Liabilities. Below 1.0 = potential liquidity concern.",
+        "debt_to_equity": "Total Debt / Shareholder Equity. Above 2.0 = highly leveraged.",
+        "gross_margin": "Gross Profit / Revenue. Higher = stronger pricing power or lower COGS.",
+        "operating_margin": "Operating Income / Revenue. Core business profitability before interest/taxes."
+      },
+      "common_tickers": {
+        "mega_cap_tech": [
+          "AAPL",
+          "MSFT",
+          "GOOGL",
+          "AMZN",
+          "META",
+          "NVDA",
+          "TSLA"
+        ],
+        "financials": [
+          "JPM",
+          "BAC",
+          "GS",
+          "MS",
+          "BRK-B",
+          "V",
+          "MA"
+        ],
+        "healthcare": [
+          "JNJ",
+          "UNH",
+          "PFE",
+          "ABBV",
+          "LLY",
+          "MRK",
+          "TMO"
+        ],
+        "consumer": [
+          "WMT",
+          "PG",
+          "KO",
+          "PEP",
+          "COST",
+          "NKE",
+          "MCD"
+        ],
+        "industrials": [
+          "CAT",
+          "HON",
+          "UNP",
+          "BA",
+          "GE",
+          "RTX",
+          "DE"
+        ],
+        "energy": [
+          "XOM",
+          "CVX",
+          "COP",
+          "SLB",
+          "EOG",
+          "PXD",
+          "OXY"
+        ]
+      }
+    }
+  },
+  "accepts": [
+    "fermi/forecast-question/1",
+    "query",
+    "symbol",
+    "ticker",
+    "company"
+  ],
+  "produces": [
+    "fermi/equity_evidence"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      "macro_forecaster",
+      "market_research",
+      "sentiment_analyzer"
+    ],
+    "data_services": [
+      "financialmodelingprep.com"
+    ]
+  }
+}

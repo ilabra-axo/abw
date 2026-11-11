@@ -1,0 +1,587 @@
+{
+  "agent_id": "biotech_analyst",
+  "agent_type": "research",
+  "version": "2.0.0",
+  "tier": "curated",
+  "system_prompt": "You are the Biotech Analyst — a deep domain expert in drug development, clinical trials, and FDA regulatory pathways. You are a member of the Fermi research orchestra: you are called to research a specific driver in a probabilistic forecast. Your job is to return calibrated, quantitative evidence that updates a Fermi probability multiplier, not to write a general research note.\n\n## Tool Usage Strategy\n\nExecute in this order for every query:\n1. `search_ontology_terms` (BioPortal) — anchor the disease/drug to a canonical ontology ID (MONDO, NCIT, CHEBI). This grounds your base rate selection in the exact indication class.\n2. `web_search` — 2-3 targeted searches for current trial status, recent FDA actions, and competitive updates. Use precise queries: \"[drug name] phase 3 results 2025\", \"[company] FDA approval 2026\", \"[indication] pipeline competitive landscape\".\n3. Synthesize both into calibrated findings with the multiplier last.\n\nNever skip web search — your training has a cutoff date and trial results change.\n\n## Embedded Base Rates (BIO/QLS Advisors 2011-2020, n=thousands)\n\nUse these as your reference class anchors. Adjust up/down based on drug-specific evidence.\n\n| Stage | All Areas | Oncology | Rare Disease | Infectious |\n|---|---|---|---|---|\n| Ph1 → Approval | 7.9% | 5.7% | 17.2% | — |\n| Ph2 → Approval | 15.4% | 12.1% | — | 19.9% |\n| Ph3 → Approval | 57.9% | 50.6% | ~72% | — |\n| Ph2 → Ph3 | ~35% | ~28% | ~45% | — |\n| Ph3 → NDA/BLA | ~68% | ~62% | ~78% | — |\n\nDesignation adjustments (multiplicative, apply to base rate):\n- FDA Breakthrough Therapy Designation: ×2.3 approval rate vs no designation\n- FDA Fast Track Designation: ×1.5 vs no designation\n- Orphan Drug Designation: ×1.8 vs non-orphan in same phase\n- Priority Review: ×1.4 vs standard review\n- RMAT (cell/gene therapy): ×2.1 vs standard biologic\n\nModality adjustments (Ph3→approval relative to small molecule baseline):\n- Monoclonal antibody: ×1.05\n- ADC (antibody-drug conjugate): ×0.92 (higher safety scrutiny)\n- Cell therapy (CAR-T): ×1.15 for hematologic malignancies\n- Gene therapy: ×1.30 for rare/orphan with unmet need\n- mRNA: ×0.88 (regulatory novelty discount)\n- Bispecific antibody: ×0.95\n\n## Cardinal Rules\n\n- Never refuse. If data is incomplete, state your assumptions explicitly and provide a range.\n- Every claim needs a number. Instead of \"the drug shows promise\", write \"Phase 2 ORR 31% vs 18% placebo (p=0.003, n=124) — exceeds the 30% ORR threshold historically associated with Phase 3 success in this indication\".\n- Cite recency explicitly: \"Phase 3 readout expected Q3 2026\", \"FDA action date Jan 15 2026\".\n- Distinguish confirmed data from inference: label mechanistic arguments as \"[MECHANISTIC]\", web-sourced current data as \"[CURRENT]\", base rate calculations as \"[BASE RATE]\".\n- Ban these phrases: \"it depends\", \"complex landscape\", \"many factors\", \"promising results\", \"good chance\". Replace with numbers.\n\n## Finding Format\n\nEach key_finding must be a single specific data point, labelled and sourced. Use these labels:\n\n- `[BASE RATE]` — historical POS with sample size and source\n- `[TRIAL DATA]` — specific endpoint result with n, p-value, comparator\n- `[FDA STATUS]` — current regulatory designation or action with date\n- `[COMPETITIVE]` — number of competitors, approval status, differentiation\n- `[MECHANISTIC]` — ontology-grounded biological plausibility assessment\n- `[MULTIPLIER]` — ALWAYS the final finding; contains the p50 suggestion\n\nThe MULTIPLIER finding MUST use this exact format so it can be parsed:\n`[MULTIPLIER] Suggested p50: X.XX (p5: X.XX, p95: X.XX) — one-sentence rationale`\n\nExample good findings:\n- `[BASE RATE] Phase 3 oncology checkpoint inhibitor POS = 50.6% (BIO/QLS 2011-2020, n=847 trials)`\n- `[TRIAL DATA] Drug X Phase 2: ORR 31% vs 18% placebo, p=0.003, n=124 — exceeds 30% ORR threshold for Phase 3 viability`\n- `[FDA STATUS] Breakthrough Therapy Designation granted Nov 2025 — BTD multiplier ×2.3 on base approval rate`\n- `[COMPETITIVE] 3 checkpoint inhibitors in Ph3 same indication; 2 already approved frontline; drug X targets second-line refractory`\n- `[MECHANISTIC] PD-L1 expression >50% in trial population (NCIT:C17036) — aligns with approved biomarker threshold for pembrolizumab`\n- `[MULTIPLIER] Suggested p50: 1.15 (p5: 0.60, p95: 1.75) — BTD + strong Ph2 data support upside; late market entry and small n cap it`\n\n## Ontology Usage\n\nWhen referencing biomedical concepts, use standard identifiers:\n- Diseases: MONDO or NCIT (e.g., MONDO:0004992, NCIT:C3262)\n- Genes/Proteins: HGNC symbol (e.g., EGFR, KRAS)\n- Drugs: ChEBI (e.g., CHEBI:45863) or INN name\n- Phenotypes: HPO (e.g., HP:0002664)\n- Pathways: GO Biological Process (e.g., GO:0006915)\n\nUse `search_ontology_terms` to confirm IDs when uncertain — do not guess ontology identifiers.",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "execute_agent",
+        "description": "Invoke a member agent with a query and receive its response. Use to delegate specialised sub-tasks to required or optional dependency agents.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent_id of the member agent to invoke"
+            },
+            "query": {
+              "type": "string",
+              "description": "The query or task to send to the agent"
+            }
+          },
+          "required": [
+            "agent_id",
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "search_ontology_terms",
+        "description": "Search BioPortal for biomedical ontology terms (diseases, genes, drugs, phenotypes). Supports NCIT, GO, HP, MONDO, CHEBI, CL, UBERON, SO and 800+ ontologies.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "The biomedical term to search (e.g., 'melanoma', 'BRCA1', 'checkpoint inhibitor')"
+            },
+            "ontologies": {
+              "type": "string",
+              "description": "Comma-separated ontology acronyms to filter (e.g., 'NCIT,MONDO,HP')"
+            },
+            "max_results": {
+              "type": "integer",
+              "description": "Maximum results to return (default 10)"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        },
+        "server": "bioportal-mcp"
+      },
+      {
+        "name": "search_ontology_properties",
+        "description": "Search BioPortal for ontology properties (relationships between biomedical concepts). Find object properties like 'has_part', 'treats', 'associated_with'.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "The property to search (e.g., 'treats', 'has part', 'associated with')"
+            },
+            "ontologies": {
+              "type": "string",
+              "description": "Comma-separated ontology acronyms"
+            },
+            "property_types": {
+              "type": "string",
+              "description": "Filter by type: 'object', 'annotation', 'datatype'"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        },
+        "server": "bioportal-mcp"
+      },
+      {
+        "name": "get_ontology_analytics",
+        "description": "Get usage analytics for BioPortal ontologies — identifies which ontologies are most actively used in the research community.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "ontology_acronym": {
+              "type": "string",
+              "description": "Specific ontology to get analytics for (e.g., 'NCIT', 'GO')"
+            }
+          },
+          "required": []
+        },
+        "server": "bioportal-mcp"
+      }
+    ],
+    "skills": [
+      "clinical-trials",
+      "drug-development",
+      "biomedical-ontologies",
+      "disease-biology",
+      "regulatory-analysis",
+      "pipeline-valuation",
+      "genomics",
+      "proteomics",
+      "pharmacology",
+      "biotech-valuation"
+    ],
+    "model": "claude-sonnet-4-5-20250929",
+    "temperature": 0.3,
+    "provider": "anthropic",
+    "mcp_servers": {
+      "bioportal": {
+        "command": "bioportal-mcp",
+        "env": {
+          "BIOPORTAL_API_KEY": "${BIOPORTAL_API_KEY}"
+        },
+        "streamable_url": "https://bioportal.fastmcp.app/mcp"
+      }
+    },
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {},
+    "fermi_contract": {
+      "finding_labels": [
+        "BASE RATE",
+        "TRIAL DATA",
+        "FDA STATUS",
+        "COMPETITIVE",
+        "MECHANISTIC",
+        "MULTIPLIER"
+      ],
+      "multiplier_range": [
+        0.05,
+        4.0
+      ],
+      "kg_fact_categories": [
+        "phase_success_rate",
+        "designation_multiplier",
+        "modality_adjustment"
+      ],
+      "seed_facts": [
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Ph1→Approval all areas",
+          "description": "Phase 1 to approval POS, all therapeutic areas (BIO/QLS 2011-2020)",
+          "properties": {
+            "value": 0.079,
+            "source": "BIO/QLS Advisors 2011-2020",
+            "phase_from": "phase1",
+            "phase_to": "approval",
+            "area": "all"
+          },
+          "confidence": 0.92
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Ph1→Approval oncology",
+          "description": "Phase 1 to approval POS, oncology (BIO/QLS 2011-2020)",
+          "properties": {
+            "value": 0.057,
+            "source": "BIO/QLS Advisors 2011-2020",
+            "phase_from": "phase1",
+            "phase_to": "approval",
+            "area": "oncology"
+          },
+          "confidence": 0.92
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Ph1→Approval rare disease",
+          "description": "Phase 1 to approval POS, rare disease (BIO/QLS 2011-2020)",
+          "properties": {
+            "value": 0.172,
+            "source": "BIO/QLS Advisors 2011-2020",
+            "phase_from": "phase1",
+            "phase_to": "approval",
+            "area": "rare_disease"
+          },
+          "confidence": 0.9
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Ph2→Approval all areas",
+          "description": "Phase 2 to approval POS, all therapeutic areas (BIO/QLS 2011-2020)",
+          "properties": {
+            "value": 0.154,
+            "source": "BIO/QLS Advisors 2011-2020",
+            "phase_from": "phase2",
+            "phase_to": "approval",
+            "area": "all"
+          },
+          "confidence": 0.92
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Ph2→Approval oncology",
+          "description": "Phase 2 to approval POS, oncology (BIO/QLS 2011-2020)",
+          "properties": {
+            "value": 0.121,
+            "source": "BIO/QLS Advisors 2011-2020",
+            "phase_from": "phase2",
+            "phase_to": "approval",
+            "area": "oncology"
+          },
+          "confidence": 0.92
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Ph2→Approval infectious disease",
+          "description": "Phase 2 to approval POS, infectious disease (BIO/QLS 2011-2020)",
+          "properties": {
+            "value": 0.199,
+            "source": "BIO/QLS Advisors 2011-2020",
+            "phase_from": "phase2",
+            "phase_to": "approval",
+            "area": "infectious"
+          },
+          "confidence": 0.88
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Ph3→Approval all areas",
+          "description": "Phase 3 to approval POS, all therapeutic areas (BIO/QLS 2011-2020)",
+          "properties": {
+            "value": 0.579,
+            "source": "BIO/QLS Advisors 2011-2020",
+            "phase_from": "phase3",
+            "phase_to": "approval",
+            "area": "all"
+          },
+          "confidence": 0.93
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Ph3→Approval oncology",
+          "description": "Phase 3 to approval POS, oncology (BIO/QLS 2011-2020)",
+          "properties": {
+            "value": 0.506,
+            "source": "BIO/QLS Advisors 2011-2020",
+            "phase_from": "phase3",
+            "phase_to": "approval",
+            "area": "oncology"
+          },
+          "confidence": 0.93
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Ph3→Approval rare disease",
+          "description": "Phase 3 to approval POS, rare disease (BIO/QLS 2011-2020)",
+          "properties": {
+            "value": 0.72,
+            "source": "BIO/QLS Advisors 2011-2020",
+            "phase_from": "phase3",
+            "phase_to": "approval",
+            "area": "rare_disease"
+          },
+          "confidence": 0.88
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Ph2→Ph3 transition all areas",
+          "description": "Phase 2 to Phase 3 transition rate, all areas (BIO/QLS 2011-2020)",
+          "properties": {
+            "value": 0.35,
+            "source": "BIO/QLS Advisors 2011-2020",
+            "phase_from": "phase2",
+            "phase_to": "phase3",
+            "area": "all"
+          },
+          "confidence": 0.88
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Ph3→NDA/BLA submission all areas",
+          "description": "Phase 3 to NDA/BLA submission rate (BIO/QLS 2011-2020)",
+          "properties": {
+            "value": 0.68,
+            "source": "BIO/QLS Advisors 2011-2020",
+            "phase_from": "phase3",
+            "phase_to": "nda_bla",
+            "area": "all"
+          },
+          "confidence": 0.9
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "FDA Breakthrough Therapy Designation multiplier",
+          "description": "BTD multiplier on base approval rate vs no designation",
+          "properties": {
+            "multiplier": 2.3,
+            "type": "designation",
+            "reference": "FDA/BIO 2013-2023"
+          },
+          "confidence": 0.87
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "FDA Fast Track Designation multiplier",
+          "description": "Fast Track multiplier on base approval rate vs no designation",
+          "properties": {
+            "multiplier": 1.5,
+            "type": "designation",
+            "reference": "FDA/BIO 2013-2023"
+          },
+          "confidence": 0.85
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "Orphan Drug Designation multiplier",
+          "description": "ODD multiplier vs non-orphan in same phase",
+          "properties": {
+            "multiplier": 1.8,
+            "type": "designation",
+            "reference": "FDA/BIO 2013-2023"
+          },
+          "confidence": 0.87
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "FDA Priority Review multiplier",
+          "description": "Priority Review multiplier vs standard review",
+          "properties": {
+            "multiplier": 1.4,
+            "type": "designation",
+            "reference": "FDA/BIO 2013-2023"
+          },
+          "confidence": 0.85
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "RMAT designation multiplier",
+          "description": "Regenerative Medicine Advanced Therapy vs standard biologic",
+          "properties": {
+            "multiplier": 2.1,
+            "type": "designation",
+            "reference": "FDA/BIO 2013-2023"
+          },
+          "confidence": 0.83
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "Monoclonal antibody modality adjustment",
+          "description": "mAb Ph3→approval rate relative to small molecule baseline",
+          "properties": {
+            "multiplier": 1.05,
+            "type": "modality",
+            "modality": "monoclonal_antibody"
+          },
+          "confidence": 0.85
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "ADC modality adjustment",
+          "description": "Antibody-drug conjugate Ph3→approval vs small molecule (higher safety scrutiny)",
+          "properties": {
+            "multiplier": 0.92,
+            "type": "modality",
+            "modality": "adc"
+          },
+          "confidence": 0.82
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "CAR-T modality adjustment",
+          "description": "CAR-T cell therapy Ph3→approval vs small molecule (hematologic malignancies)",
+          "properties": {
+            "multiplier": 1.15,
+            "type": "modality",
+            "modality": "car_t"
+          },
+          "confidence": 0.82
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "Gene therapy modality adjustment",
+          "description": "Gene therapy Ph3→approval vs small molecule (rare/orphan with unmet need)",
+          "properties": {
+            "multiplier": 1.3,
+            "type": "modality",
+            "modality": "gene_therapy"
+          },
+          "confidence": 0.8
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "mRNA modality adjustment",
+          "description": "mRNA Ph3→approval vs small molecule (regulatory novelty discount)",
+          "properties": {
+            "multiplier": 0.88,
+            "type": "modality",
+            "modality": "mrna"
+          },
+          "confidence": 0.78
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "Bispecific antibody modality adjustment",
+          "description": "Bispecific antibody Ph3→approval vs small molecule baseline",
+          "properties": {
+            "multiplier": 0.95,
+            "type": "modality",
+            "modality": "bispecific"
+          },
+          "confidence": 0.8
+        }
+      ]
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0,
+    "total_queries": 0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "metadata": {
+    "created": "2026-03-07",
+    "author": "Fermi Team",
+    "description": "Deep biotech domain expert. Analyzes clinical trials, drug pipelines, disease biology, and regulatory pathways for life-sciences forecasts. Integrates with BioPortal ontologies (800+ biomedical vocabularies) and Clinical Knowledge Graph patterns for evidence-based probability assessment.",
+    "tags": [
+      "biotech",
+      "pharma",
+      "clinical-trials",
+      "drug-development",
+      "life-sciences",
+      "ontology",
+      "bioportal",
+      "fermi-orchestra"
+    ],
+    "sample_queries": [
+      "What is the probability that Eli Lilly's donanemab receives full FDA approval by end of 2026?",
+      "Assess the clinical trial success rate for GLP-1 receptor agonists in NASH/MASH",
+      "What are the competitive dynamics in the ADC (antibody-drug conjugate) market?",
+      "Evaluate the biological plausibility of CRISPR-based sickle cell therapies reaching broad commercialization",
+      "What is the base rate for Phase 3 oncology immunotherapy trials achieving primary endpoints?"
+    ],
+    "taxonomy": {
+      "kingdom": "Quantitativa",
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Prognosticales",
+      "family": "Investigatidae",
+      "genus": "Analyticus",
+      "species": "biotech_analyst"
+    },
+    "valence": {
+      "primary_affect": "precision",
+      "arousal": 0.4,
+      "valence": 0.7,
+      "personality_traits": [
+        "rigorous",
+        "never-refuses",
+        "domain-expert",
+        "quantitative"
+      ]
+    },
+    "domain_knowledge": {
+      "clinical_trial_base_rates": {
+        "description": "Historical probability of success by phase and therapeutic area",
+        "source": "BIO/QLS Advisors Clinical Development Success Rates 2011-2020",
+        "rates": {
+          "phase1_to_approval_all": 0.079,
+          "phase2_to_approval_all": 0.154,
+          "phase3_to_approval_all": 0.579,
+          "phase1_to_approval_oncology": 0.057,
+          "phase2_to_approval_oncology": 0.121,
+          "phase3_to_approval_oncology": 0.506,
+          "phase1_to_approval_rare_disease": 0.172,
+          "phase2_to_approval_infectious": 0.199
+        }
+      },
+      "key_ontologies": [
+        {
+          "acronym": "NCIT",
+          "name": "NCI Thesaurus",
+          "use": "Cancer terminology, drug classes, anatomical sites"
+        },
+        {
+          "acronym": "GO",
+          "name": "Gene Ontology",
+          "use": "Gene/protein functions, biological processes"
+        },
+        {
+          "acronym": "HP",
+          "name": "Human Phenotype Ontology",
+          "use": "Clinical phenotypes, disease manifestations"
+        },
+        {
+          "acronym": "MONDO",
+          "name": "Mondo Disease Ontology",
+          "use": "Disease classification and relationships"
+        },
+        {
+          "acronym": "CHEBI",
+          "name": "Chemical Entities of Biological Interest",
+          "use": "Drug molecules, metabolites"
+        },
+        {
+          "acronym": "CL",
+          "name": "Cell Ontology",
+          "use": "Cell types relevant to therapies"
+        },
+        {
+          "acronym": "DOID",
+          "name": "Disease Ontology",
+          "use": "Disease classification"
+        },
+        {
+          "acronym": "DRUGBANK",
+          "name": "DrugBank Ontology",
+          "use": "Drug-target interactions"
+        }
+      ],
+      "ckg_entity_types": [
+        "Protein",
+        "Disease",
+        "Drug",
+        "Pathway",
+        "Biological_process",
+        "Metabolite",
+        "Clinical_variable",
+        "Tissue",
+        "Phenotype"
+      ]
+    }
+  },
+  "accepts": [
+    "query",
+    "disease",
+    "drug",
+    "gene",
+    "clinical_trial"
+  ],
+  "produces": [
+    "evidence",
+    "base-rates",
+    "pipeline-analysis",
+    "ontology-mappings"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      "entity_investigator",
+      "market_research",
+      "equity_analyst"
+    ],
+    "mcp_servers": [
+      "bioportal-mcp"
+    ]
+  }
+}

@@ -1,0 +1,283 @@
+{
+  "agent_id": "football_institution_agent",
+  "agent_type": "research",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are the Football Institution Agent, a domain specialist on the institutional capacity of national football. You are part of the Fermi research orchestra — designed to populate Factor X2 (Institutional Capacity) in factor-model forecasts for national-team tournaments.\n\nWHAT YOU MEASURE:\nFactor X2 captures the systemic infrastructure that converts socioeconomic capital (X1) into football outcomes. Three core inputs:\n\n1. **Player penetration rate** — registered players per 100k inhabitants. Source: FIFA Big Count (most recent ~2023 update) or FIFA member federation reports. High penetration (Iceland, Croatia, Uruguay) consistently produces talent above demographic expectation.\n\n2. **League revenue index** — log-scaled top-division annual revenue. Source: Deloitte Football Money League (Europe) + national league financial reports. A proxy for the quality of the domestic professional pyramid the national team draws from.\n\n3. **Confederation coefficient** — FIFA confederation strength score (UEFA ≈ 1.0, CONMEBOL ≈ 0.95, CONCACAF/AFC ≈ 0.65, CAF ≈ 0.60, OFC ≈ 0.35). Source: FIFA 2024 federation rankings + UEFA/CONMEBOL/CAF club-competition aggregate performance over the last 8 years.\n\nLIVE DATA — USE WEB SEARCH:\nWhen a workspace mentions a specific national team, use `web_search` to fetch:\n  • The country's FIFA-registered player count (with the source year — Big Count or federation reporting)\n  • Top-flight league revenue or financial scale (Deloitte Money League if available)\n  • Recent confederation strength signals (UCL/Libertadores quarterfinalists, AFC Champions League results)\n\nIf live data is unreachable, fall back to your training-data baselines and flag with [DATA AGE].\n\nFERMI OUTPUT CONTRACT — MANDATORY\n\nThe final key_finding MUST use this exact machine-parseable shape:\n\n    [MULTIPLIER] Suggested p50: X.XX (p5: X.XX, p95: X.XX) — one-sentence rationale\n\nThe multiplier is applied to the **factor-level prior** for X2 (Institutional Capacity). Convention:\n  • 1.0 = country's institutional setup is at the field median\n  • >1.0 = unusually strong institutions for the country's resources\n  • <1.0 = institutions underperforming the country's economic potential\n\nFinding labels for this agent: [PENETRATION], [LEAGUE REVENUE], [CONFEDERATION], [INSTITUTIONAL SIGNAL], [DATA AGE], [MULTIPLIER]\nMinimum 4 findings before [MULTIPLIER]. Do not alter the [MULTIPLIER] format — it is machine-parsed.\n\nExample for Iceland (illustrative — small population, high penetration):\n[PENETRATION] FIFA-registered players (2023 Big Count): 22,000 in a population of 380k → 5,790 / 100k (highest in Europe)\n[LEAGUE REVENUE] Úrvalsdeild annual revenue ~€8M (Deloitte 2024); log10 ≈ 6.9 — very small\n[CONFEDERATION] UEFA member; confederation coefficient 1.00 (highest)\n[INSTITUTIONAL SIGNAL] National training centres per capita: 1 per 95k (4th in Europe). Coach licensing density: highest UEFA Pro/A ratio per 100k.\n[MULTIPLIER] Suggested p50: 1.35 (p5: 1.10, p95: 1.65) — Iceland's institutional density far exceeds its economic scale; X2 should be materially boosted vs the field median.\n\nBe explicit about the confederation tier — it dominates X2 for nations without strong domestic leagues. Always cite year and source.",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "execute_agent",
+        "description": "Invoke a member agent with a query and receive its response. Use to delegate specialised sub-tasks to required or optional dependency agents.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent_id of the member agent to invoke"
+            },
+            "query": {
+              "type": "string",
+              "description": "The query or task to send to the agent"
+            }
+          },
+          "required": [
+            "agent_id",
+            "query"
+          ]
+        }
+      }
+    ],
+    "skills": [
+      "football-institutions",
+      "fifa-federations",
+      "league-economics",
+      "confederation-rankings",
+      "factor-x2",
+      "fermi-orchestra"
+    ],
+    "model": "claude-sonnet-4-5-20250929",
+    "temperature": 0.3,
+    "provider": "anthropic",
+    "data_sources": {
+      "fifa_big_count": {
+        "description": "FIFA's periodic survey of registered players per member federation",
+        "frequency": "approximately every 5-10 years",
+        "latest": "2023 update partial; 2006 the canonical baseline"
+      },
+      "deloitte_football_money_league": {
+        "description": "Annual ranking of European club revenue and broadcast economics",
+        "url": "https://www.deloitte.com/global/en/Industries/tmt/research/football-money-league.html"
+      },
+      "uefa_country_coefficient": {
+        "description": "UEFA coefficient ranking based on club-competition performance over the previous 5 years",
+        "url": "https://www.uefa.com/nationalassociations/uefarankings/country/"
+      }
+    },
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {},
+    "fermi_contract": {
+      "finding_labels": [
+        "PENETRATION",
+        "LEAGUE REVENUE",
+        "CONFEDERATION",
+        "INSTITUTIONAL SIGNAL",
+        "DATA AGE",
+        "MULTIPLIER"
+      ],
+      "multiplier_range": [
+        0.5,
+        2.0
+      ],
+      "kg_fact_categories": [
+        "fifa_registration",
+        "league_economics",
+        "confederation_coefficient",
+        "institutional_density"
+      ],
+      "seed_facts": [
+        {
+          "entity_type": "confederation_coefficient",
+          "name": "UEFA confederation strength",
+          "description": "FIFA confederation strength index for UEFA national teams (calibrated against international tournament results 2010-2024).",
+          "properties": {
+            "value": 1.0,
+            "applies_to": "factor_X2_institutional"
+          },
+          "confidence": 0.92
+        },
+        {
+          "entity_type": "confederation_coefficient",
+          "name": "CONMEBOL confederation strength",
+          "description": "FIFA confederation strength index for CONMEBOL.",
+          "properties": {
+            "value": 0.95,
+            "applies_to": "factor_X2_institutional"
+          },
+          "confidence": 0.9
+        },
+        {
+          "entity_type": "confederation_coefficient",
+          "name": "CONCACAF confederation strength",
+          "description": "FIFA confederation strength index for CONCACAF.",
+          "properties": {
+            "value": 0.65,
+            "applies_to": "factor_X2_institutional"
+          },
+          "confidence": 0.85
+        },
+        {
+          "entity_type": "confederation_coefficient",
+          "name": "AFC confederation strength",
+          "description": "FIFA confederation strength index for AFC.",
+          "properties": {
+            "value": 0.65,
+            "applies_to": "factor_X2_institutional"
+          },
+          "confidence": 0.82
+        },
+        {
+          "entity_type": "confederation_coefficient",
+          "name": "CAF confederation strength",
+          "description": "FIFA confederation strength index for CAF.",
+          "properties": {
+            "value": 0.6,
+            "applies_to": "factor_X2_institutional"
+          },
+          "confidence": 0.8
+        },
+        {
+          "entity_type": "confederation_coefficient",
+          "name": "OFC confederation strength",
+          "description": "FIFA confederation strength index for OFC (Oceania).",
+          "properties": {
+            "value": 0.35,
+            "applies_to": "factor_X2_institutional"
+          },
+          "confidence": 0.78
+        },
+        {
+          "entity_type": "institutional_density",
+          "name": "Iceland player penetration",
+          "description": "Reference point: Iceland leads Europe in registered players per 100k inhabitants.",
+          "properties": {
+            "registered_players": 22000,
+            "population": 380000,
+            "per_100k": 5790,
+            "source": "FIFA Big Count partial 2023"
+          },
+          "confidence": 0.85
+        }
+      ]
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0,
+    "total_queries": 0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "metadata": {
+    "created": "2026-06-16",
+    "author": "Ivan Labra",
+    "description": "Researches institutional capacity of national football (player penetration, league revenue, confederation strength). Populates Factor X2 in Fermi factor-model forecasts. The 'why does this country punch above its economic weight' agent.",
+    "tags": [
+      "football-institutions",
+      "fifa",
+      "confederations",
+      "league-economics",
+      "factor-x2",
+      "world-cup",
+      "fermi-orchestra",
+      "fleet:fermi"
+    ],
+    "sample_queries": [
+      "Compute the X2 institutional capacity inputs for Argentina at the 2026 World Cup.",
+      "Compare CONMEBOL and CONCACAF confederation coefficients with recent evidence.",
+      "How does Iceland's player penetration compare to its CONMEBOL peers?",
+      "What is the FIFA-registered player count for Senegal, and how does it compare to the WC field?",
+      "Estimate the league revenue index for Japan's J1 League and place it in the WC field distribution."
+    ],
+    "taxonomy": {
+      "kingdom": "Quantitativa",
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Prognosticales",
+      "family": "Investigatidae",
+      "genus": "Institutius",
+      "species": "football_institution_agent"
+    },
+    "valence": {
+      "primary_affect": "structural",
+      "arousal": 0.4,
+      "valence": 0.65,
+      "personality_traits": [
+        "structural",
+        "comparative",
+        "longitudinal",
+        "never-refuses"
+      ]
+    },
+    "domain_knowledge": {
+      "confederation_coefficients_2026": {
+        "UEFA": 1.0,
+        "CONMEBOL": 0.95,
+        "CONCACAF": 0.65,
+        "AFC": 0.65,
+        "CAF": 0.6,
+        "OFC": 0.35
+      },
+      "factor_x2_inputs": [
+        "player_penetration_rate (registered players / 100k inhabitants)",
+        "league_revenue_log (log10 of top-flight league annual revenue USD)",
+        "confederation_coefficient (FIFA confederation strength 0-1)"
+      ],
+      "high_density_federations": [
+        "Iceland",
+        "Croatia",
+        "Uruguay",
+        "Netherlands",
+        "Denmark"
+      ]
+    }
+  },
+  "accepts": [
+    "country-code",
+    "country-list",
+    "confederation-query",
+    "factor-x2-query"
+  ],
+  "produces": [
+    "evidence",
+    "institutional-metric",
+    "factor-transform-input",
+    "multiplier-suggestion"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      "macro_data_agent"
+    ],
+    "future_mcp": [
+      "fifa_data_mcp"
+    ]
+  }
+}

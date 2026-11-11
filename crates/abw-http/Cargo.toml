@@ -1,0 +1,27 @@
+[package]
+name = "abw-http"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "HTTP handlers on ReadDb and Ledger::dispatch only (target-system-design §13.1; T17; ADR-0008 §9)"
+
+# No sqlx (T1): reads go through abw_ledger::ReadDb and read_query!.
+[dependencies]
+abw-canon = { path = "../abw-canon" }
+abw-ledger = { path = "../abw-ledger" }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "json", "uuid", "chrono"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tower = { version = "0.5", features = ["util"] }
+uuid = { version = "1", features = ["v4"] }
+
+[lints]
+workspace = true

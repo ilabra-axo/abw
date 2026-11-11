@@ -13,9 +13,11 @@ fault-injection = []
 [dependencies]
 abw-canon = { path = "../abw-canon" }
 abw-ledger-macros = { path = "../abw-ledger-macros" }
+# ADR-0008 §4: DateTime<Utc>, the type target-system-design §3.8 names.
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "json", "uuid"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "json", "uuid", "chrono"] }
 thiserror = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 
@@ -23,7 +25,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # The package itself with fault injection on, so the T5 tests can reach `inject_fault`.
 abw-ledger = { path = ".", features = ["fault-injection"] }
 serde_json = "1"
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "json", "uuid"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "json", "uuid", "chrono"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 uuid = { version = "1", features = ["v4"] }
 

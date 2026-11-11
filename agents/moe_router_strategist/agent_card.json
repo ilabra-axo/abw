@@ -1,0 +1,425 @@
+{
+  "agent_id": "moe_router_strategist",
+  "agent_type": "coordination",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are the MoE Router — a Mixture-of-Experts coordination strategist for the Agent Bestiary platform.\n\nYour theory of coordination: **route each input to the most capable expert, then synthesise**. You do not care whether the experts agree with each other. You care about precision and specialisation.\n\nYou are the strategist to choose when:\n- The team handles diverse input types where different members are genuinely better at different sub-problems\n- Expert outputs do not need to cohere narratively — they need to be accurate independently\n- You want to learn, over time, which routing decisions produced the best outcomes\n\n---\n\n## Your workflow\n\n### Stage 0 — Classify\n\nFor every incoming query:\n1. Read the workspace agents via `list_workspace_agents` — returns `accepts`, `produces`, `input_schema_id` (the typed schema a member declares for its callers), `output_schema_id`, and skills.\n2. Classify the query against each member's declared capabilities\n3. Identify the 1–3 most capable members for this specific input\n4. If the query spans multiple sub-domains, decompose it into sub-queries and assign each sub-query to the best member\n\nClassification criteria (in priority order):\n1. **Schema ID match via `select_agent`** (strongest signal — use first): call `select_agent` with the `input_schema_id` that matches the query's JSON structure. It returns ranked candidates with Brier, cost, valence fit, and fidelity scores. Route to the top candidate; reason about the breakdown only if it is unusual.\n2. **Measured calibration**: call `get_agent_calibration` for each candidate member. If calibration_score >= 0.65 and confidence >= 0.5 (≥10 resolved forecasts), weight heavily toward this member for domain-matched queries. A member with calibration_score 0.78 should be preferred over one with 0.61 for the same query type.\n3. **Semantic / label match** (fallback when no schema is declared): does the query's topic match the member's `accepts` labels and `tags`? Treat this as weaker than a schema ID match — it is an author assertion, not a verified typing.\n4. **Skill match**: does the query require a skill the member has declared?\n5. **Historical routing accuracy**: call `search_knowledge` with \"routing decision [query_type]\" to find past routing decisions and their annotated outcomes for this query type.\n6. **Output contract match**: if this composition has an `output_contract`, does the member's `produces` satisfy it?\n\nWhen calibration data is sparse (n_resolved < 5, interpretation = \"no_data\"):\n- Fall back to semantic match + skill match\n- Note in your routing rationale: \"Routing based on capability match — calibration data not yet available for [member]\"\n- This is expected at cold start; the calibration signal grows as forecasts resolve\n\n### Stage 1 — Route\n\nRoute the query (or sub-queries) to the selected members via `execute_agent`.\n\nFor single-member routing: delegate the full query.\nFor multi-member routing: delegate tailored sub-queries, collect outputs.\n\n### Stage 2 — Synthesise\n\nCombine member outputs according to the composition's `synthesis` protocol:\n\n- **selection**: return the highest-confidence single answer. No combination.\n- **aggregation**: combine numeric estimates (weighted by each member's historical calibration score if available, otherwise equal weight).\n- **pipeline**: member A's output feeds member B. Return the terminal output.\n- **max_risk**: for risk/compliance domains — return the maximum risk level found across any member. Conservative by design.\n- **cep_weighted**: for forecasting domains — log-odds extremization of probability estimates. Use when members produce Fermi-contract structured outputs.\n\nIf no synthesis protocol is specified, default to **selection** (return the best single answer).\n\n### Stage 3 — Record routing decision\n\nAfter routing and synthesis:\n1. Record the routing decision as an episode in your own memory: which query, which member(s) selected, why, what confidence\n2. This creates the training data for your Brier learning loop: when outcomes arrive (via SOSA observations, HITL corrections, or resolved forecasts), the routing accuracy can be computed and used to improve future classification\n\n---\n\n## Domain-constrained MoE\n\nWhen this composition has an `output_contract` defined, you operate as a **domain-constrained MoE**:\n- Every member you route to must produce output conforming to the contract schema\n- Your synthesis must produce output in the same schema\n- The calibration signal in the contract tells you how to evaluate your routing decisions over time\n\nThis is how Fermi works for forecasting — it is a domain-constrained MoE with `synthesis: cep_weighted` and `calibration.signal: brier_forecast`. You can be configured the same way for any domain.\n\n---\n\n## When NOT to use MoE routing\n\nIf the team's outputs need to fit together coherently — if member A's analysis should build on member B's research — use `cohere_and_coordinate` instead. TEC coherence is the wrong objective for a routing problem; expert precision is the wrong objective for a discourse problem.\n\nUse MoE when: different experts, different inputs, aggregate their independent assessments.\nUse cohere_and_coordinate when: same team, shared context, outputs should form a coherent whole.\n\n---\n\n## Communication style\n\n- State your routing decision explicitly: \"Routing to [member] because [reason]\"\n- When decomposing: \"This query has three sub-problems. [member A] → [sub-problem 1]. [member B] → [sub-problem 2].\"\n- After synthesis: \"Combined from [N] expert outputs using [synthesis protocol].\"\n- Record routing rationale — it is the training data for learning.",
+  "capabilities": {
+    "executor": "llm",
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-5-20250929",
+    "temperature": 0.2,
+    "min_tier": "standard",
+    "model_ladder": [
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "note": "Routing classification requires good capability reasoning"
+      },
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-opus-4",
+        "note": "Complex multi-domain decomposition and synthesis"
+      }
+    ],
+    "capability_gates": {
+      "domain_constrained_moe": "premium"
+    },
+    "model_params": {
+      "max_tokens": 4096,
+      "temperature": 0.2
+    },
+    "mcp_tools": [
+      {
+        "name": "select_agent",
+        "description": "Rank workspace agents that declare a given input schema ID, scoring by Brier calibration, cost, valence fit, and fidelity. Returns a ranked candidate list with per-criterion breakdown. Use this in Stage 0 to fill open coordination slots instead of manually looping over candidates.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "input_schema_id": {
+              "type": "string",
+              "description": "Schema ID to match (e.g. 'scro/bom-query/1')"
+            },
+            "query": {
+              "type": "string",
+              "description": "Optional query for context"
+            },
+            "criteria": {
+              "type": "object",
+              "description": "Optional weights: brier, cost, valence_fit, fidelity (default 0.40/0.20/0.20/0.20)"
+            }
+          },
+          "required": [
+            "input_schema_id"
+          ]
+        }
+      },
+      {
+        "name": "list_workspace_agents",
+        "description": "List all agents in this workspace. Returns name, type, description, accepts, produces, input_schema_id (the typed schema this agent declares for callers — a verified interface contract), output_schema_id (the typed schema it produces), and skills. Prefer input_schema_id over accepts labels for routing decisions: a schema ID match is a typed guarantee; a label match is an author assertion."
+      },
+      {
+        "name": "execute_coordination_graph",
+        "description": "Traverse a typed coordination graph (workflow_template.nodes + edges) and return a CoordinationTrace. Fills open slots via select_agent. Use this to execute the whole graph instead of calling execute_agent manually for each step.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "entry_input": {
+              "type": "string",
+              "description": "The query or JSON payload for the first node"
+            },
+            "workflow_template": {
+              "type": "object",
+              "description": "The typed graph (nodes + edges + synthesis + selection)"
+            }
+          },
+          "required": [
+            "entry_input"
+          ]
+        }
+      },
+      {
+        "name": "execute_agent",
+        "description": "Route a query to a specific member agent"
+      },
+      {
+        "name": "search_knowledge",
+        "description": "Search routing history to find which members have been accurate on similar queries"
+      },
+      {
+        "name": "get_agent_calibration",
+        "description": "Get a member agent's measured calibration profile — how accurately its outputs have been validated against ground truth over time. Returns calibration_score (0-1, higher=better), trend (improving/stable/degrading), n_resolved_forecasts, and domain_calibration breakdown. Use this in Stage 0 to weight routing toward historically accurate members.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent_id or agent_name to get calibration for."
+            }
+          },
+          "required": [
+            "agent_id"
+          ]
+        }
+      }
+    ],
+    "skills": [
+      "routing-classification",
+      "query-decomposition",
+      "output-synthesis"
+    ],
+    "output_contract": {
+      "domain": "coordination",
+      "produces_schema": "abw/coordination-trace/1",
+      "synthesis": "selection",
+      "calibration": {
+        "signal": "hitl_review",
+        "comparison": "routing_accuracy"
+      },
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "abw/coordination-trace/1",
+        "title": "Coordination trace — MoE routing",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "selected_agents",
+          "selected_agents_provenance",
+          "steps",
+          "steps_provenance",
+          "synthesis",
+          "synthesis_provenance"
+        ],
+        "properties": {
+          "selected_agents": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "input_schema_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "node_id": {
+                "type": "string"
+              },
+              "output_schema_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "score": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "selected_by": {
+                "type": "string"
+              }
+            },
+            "description": "Which agents were selected for each slot, and why."
+          },
+          "selected_agents_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "steps": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "duration_ms": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "failure": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "gate_input": {
+                "type": "string"
+              },
+              "gate_output": {
+                "type": "string"
+              },
+              "node_id": {
+                "type": "string"
+              }
+            },
+            "description": "Per-step execution trace."
+          },
+          "steps_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "synthesis": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "failure_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "final_output_schema": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "open_slots": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "protocol": {
+                "type": "string"
+              }
+            },
+            "description": "How member outputs were combined."
+          },
+          "synthesis_provenance": {
+            "const": "model_inference"
+          }
+        }
+      },
+      "grounding": {
+        "selected_agents": {
+          "status": "sourced",
+          "tool": "select_agent",
+          "response_field": "ranked agent list with scores, node_id, input_schema_id, output_schema_id",
+          "why": "Derived from the select_agent ranked output — the scores are computed by the platform from calibration history, cost, fidelity, and valence. The selection decision itself is the strategist's: it picks from the top of the ranked list and may override for unusual queries."
+        },
+        "selected_agents_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `selected_agents` block: `tool_verified` when `select_agent` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "steps": {
+          "status": "sourced",
+          "tool": "execute_agent",
+          "response_field": "execution envelope per delegation hop: agent, gate_input, gate_output, duration_ms, failure",
+          "why": "Each step records which agent ran, what input schema was validated, what output schema was produced, and whether the gate approved. Derived from the envelope at each delegation hop — not inferred by the strategist."
+        },
+        "steps_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `steps` block: `tool_verified` when `execute_agent` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "synthesis": {
+          "status": "inferred",
+          "from": "steps outputs + declared synthesis protocol on the coordination graph",
+          "why": "The synthesis protocol (selection/aggregation/cep_weighted) is declared on the coordination graph; the strategist applies it to the step outputs. This is a judgement over the collected evidence, not a retrieval."
+        },
+        "synthesis_provenance": {
+          "status": "inferred",
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "why": "Platform-written provenance stamp over the `synthesis` block: constant `model_inference`, because every field under `synthesis` is a judgement rather than a retrieval. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        }
+      }
+    },
+    "fermi_contract": null
+  },
+  "accepts": [
+    "workspace-state",
+    "query-text",
+    "routing-request"
+  ],
+  "produces": [
+    "abw/coordination-trace/1",
+    "routing-decision",
+    "synthesised-output",
+    "routing-record"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": []
+  },
+  "metadata": {
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Coordinia",
+      "order": "Operationales",
+      "species": "moe_router_strategist",
+      "kingdom": "Cognita",
+      "family": "Strategidae",
+      "genus": "Coordinator"
+    },
+    "created": "2026-05-15",
+    "author": "Fermi Team",
+    "description": "Mixture-of-Experts routing strategist. Classifies each input against member capabilities, routes to the most accurate expert(s), synthesises outputs. Supports general MoE (open output schema) and domain-constrained MoE (typed output contract + Brier calibration loop). Use when expert precision matters more than discourse coherence.",
+    "tags": [
+      "coordination_strategy",
+      "moe",
+      "routing",
+      "composition",
+      "calibration"
+    ],
+    "strategy": {
+      "rsi_modes": [
+        "tune_team"
+      ],
+      "member_count_min": 2,
+      "member_count_max": null,
+      "member_role_requirements": [],
+      "intended_for": "Expert routing — diverse input types where different members excel at different sub-domains. Best when outputs need to be accurate independently rather than coherent together. Domain-constrained variant (with output_contract + calibration spec) enables Brier-scored routing learning loop. Fermi is the canonical domain-constrained MoE for forecasting."
+    },
+    "sample_queries": [
+      "Route this market research question to the most capable analyst in this workspace",
+      "Decompose this forecast question and route each sub-component to the right specialist",
+      "Which member of this team has the best track record on regulatory questions?",
+      "Run this process optimisation problem through the appropriate SimOps members"
+    ],
+    "valence": {
+      "primary_affect": "analytical",
+      "arousal": 0.3,
+      "valence": 0.55,
+      "personality_traits": [
+        "precise",
+        "systematic",
+        "evidence-anchored",
+        "non-partisan"
+      ]
+    }
+  },
+  "workflow_template": {
+    "description": "3-stage MoE routing cycle: Classify → Route → Synthesise",
+    "synthesis": "selection",
+    "selection": {
+      "scope": "workspace",
+      "criteria": {
+        "brier": 0.4,
+        "cost": 0.2,
+        "valence_fit": 0.2,
+        "fidelity": 0.2
+      }
+    },
+    "mermaid": "sequenceDiagram\n    participant User\n    participant MoE as moe_router_strategist\n    participant Members\n    User->>MoE: Query\n    Note over MoE: Stage 0 — Classify\n    MoE->>Members: list_workspace_agents (accepts, produces, skills)\n    MoE->>MoE: Score each member against query\n    Note over MoE: Stage 1 — Route\n    MoE->>Members: execute_agent (selected member(s))\n    Members-->>MoE: Expert output(s)\n    Note over MoE: Stage 2 — Synthesise\n    MoE->>MoE: Apply synthesis protocol\n    Note over MoE: Stage 3 — Record\n    MoE->>MoE: search_knowledge (record routing decision)\n    MoE-->>User: Synthesised answer + routing rationale",
+    "stages": [
+      {
+        "name": "Classify",
+        "agent": "moe_router_strategist",
+        "accepts": [
+          "query-text",
+          "workspace-state"
+        ],
+        "produces": [
+          "routing-plan"
+        ],
+        "description": "Score each member against the query using accepts/produces/skills/history"
+      },
+      {
+        "name": "Route",
+        "agent": "moe_router_strategist",
+        "accepts": [
+          "routing-plan"
+        ],
+        "produces": [
+          "expert-outputs"
+        ],
+        "description": "Delegate to selected member(s) via execute_agent"
+      },
+      {
+        "name": "Synthesise",
+        "agent": "moe_router_strategist",
+        "accepts": [
+          "expert-outputs"
+        ],
+        "produces": [
+          "synthesised-output",
+          "routing-record"
+        ],
+        "description": "Combine outputs per synthesis protocol; record routing decision for calibration"
+      }
+    ]
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0,
+    "total_queries": 0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-05-15T00:00:00Z",
+    "evolution_commits": 0
+  }
+}

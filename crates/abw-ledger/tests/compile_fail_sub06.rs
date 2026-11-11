@@ -233,7 +233,6 @@ fn no_decision_or_transaction_is_reachable_outside_the_ledger() {
 
 // @req SUB-06
 #[test]
-#[ignore = "pending M2: Ledger::crud lands with the M2 product PR (ADR-0008 §4 crud)"]
 fn crud_hands_out_no_transaction() {
     run_twins("abw-sub06-crud-fixtures", CASES_M2);
 }

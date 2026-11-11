@@ -1,6 +1,9 @@
 //! Typed errors (target-system-design §3.8 `DispatchError`; §13.2 boot checks).
 
 use crate::command::Expected;
+use crate::ctx::ActorKind;
+use crate::policy::PolicyKind;
+use uuid::Uuid;
 
 /// A typed refusal by the command itself (§3.2.1 step 0 or step 5), before anything is
 /// written. Maps to 4xx.
@@ -24,6 +27,49 @@ pub enum Rejection {
     Outbox(String),
     #[error("stream {stream} belongs to another tenant")]
     TenantMismatch { stream: String },
+
+    // ADR-0008 §4: the M2 aggregates.
+    #[error("only a human may do this; the actor is {actor_kind:?}")]
+    NotHuman { actor_kind: ActorKind },
+    #[error("a non-empty reason is required")]
+    ReasonRequired,
+    #[error("policy {policy} does not exist for this tenant")]
+    PolicyNotFound { policy: String },
+    #[error("expected a {expected:?} policy, found {found:?}")]
+    PolicyKindMismatch {
+        expected: PolicyKind,
+        found: PolicyKind,
+    },
+    #[error("policy {policy} is not the active version")]
+    PolicyNotActive { policy: String },
+    #[error("invalid policy document: {0}")]
+    PolicyInvalid(String),
+    #[error("no allowance is open for {owner_id}")]
+    AllowanceNotOpen { owner_id: String },
+    #[error("the allowance of {owner_id} is already open")]
+    AllowanceAlreadyOpen { owner_id: String },
+    #[error("{requested} CU requested, {available} available")]
+    InsufficientAllowance { available: u64, requested: u64 },
+    #[error("a hold of {requested} CU is above the cap of {cap}")]
+    HoldAboveCap { cap: u64, requested: u64 },
+    #[error("operator grants would total {requested_total} CU, above the limit of {limit}")]
+    GrantLimitExceeded { limit: u64, requested_total: u64 },
+    #[error("agent {agent_id} does not exist")]
+    AgentNotFound { agent_id: String },
+    #[error("agent {agent_id} is retired")]
+    AgentRetired { agent_id: String },
+    #[error("invalid agent card: {0}")]
+    InvalidCard(String),
+    #[error("episode {episode_id} does not exist")]
+    EpisodeNotFound { episode_id: Uuid },
+    #[error("episode {episode_id} is closed")]
+    EpisodeClosed { episode_id: Uuid },
+    #[error("tool {tool_name} is not on this episode's allowlist")]
+    ToolNotAllowed { tool_name: String },
+    #[error("invalid tool record: {0}")]
+    InvalidToolRecord(String),
+    #[error("invalid episode outcome: {0}")]
+    InvalidOutcome(String),
 }
 
 #[derive(Debug, thiserror::Error)]

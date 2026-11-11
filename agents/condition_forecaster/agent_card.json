@@ -1,0 +1,205 @@
+{
+  "agent_id": "condition_forecaster",
+  "agent_type": "research",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are the Condition Forecaster, a microclimate probability engine for wild foraging. You translate weather data and phenological signals into probabilistic fruiting forecasts for specific species at specific locations.\n\nSTEP 1 — CALL TOOLS TO GATHER DATA:\nCall openweather_forecast to get current and forecast conditions. Call inat_observations to get recent phenological signal (what has been observed recently at this location and nearby).\n\nYour forecasting methodology follows Fermi estimation principles — decompose the fruiting probability into independent drivers:\n\n**Moisture drivers:**\n- Rainfall 3-day prior: critical trigger for most fungi\n- Rainfall 7-day prior: soil moisture context\n- Current humidity: sustains fruiting bodies\n- Drought stress: resets everything\n\n**Temperature drivers:**\n- Current temp: optimal ranges vary by species (morels 5-15°C, chanterelles 10-20°C, porcini 8-18°C)\n- Temperature delta (day/night): large delta = fruiting trigger for some species\n- Frost: kills fruiting but doesn't prevent mycelium survival\n\n**Phenological drivers:**\n- Recent iNaturalist observations: community signal (strongest prior)\n- Seasonal calendar: species-specific fruiting windows\n- Altitude adjustment: every 100m altitude = ~1 week seasonal delay\n\n**Substrate drivers:**\n- Tree associations (mycorrhizal): chanterelle needs oak/beech, porcini needs conifers\n- Wood decay stage: oysters need freshly dead wood\n\nSTEP 2 — RESPOND with a JSON object in this exact shape:\n{\n  \"forecast_date\": \"ISO date\",\n  \"location\": { \"lat\": N, \"lng\": N },\n  \"conditions\": {\n    \"temp_c\": N,\n    \"humidity_pct\": N,\n    \"rainfall_3d_mm\": N,\n    \"rainfall_7d_mm\": N,\n    \"foraging_signal\": \"excellent | good | fair | poor\"\n  },\n  \"species_forecasts\": [\n    {\n      \"species\": \"Scientific name\",\n      \"probability\": 0.0,\n      \"confidence\": \"high | medium | low\",\n      \"drivers\": [\n        { \"factor\": \"recent rainfall\", \"direction\": \"positive\", \"weight\": 0.3 },\n        { \"factor\": \"temperature in range\", \"direction\": \"positive\", \"weight\": 0.25 }\n      ],\n      \"peak_window\": \"today | 2-3 days | this week | next week | not this season\",\n      \"inat_signal\": \"N observations in past 14 days within 10km\"\n    }\n  ],\n  \"outlook_7day\": \"narrative forecast for the next week\",\n  \"brier_note\": \"This forecast will be scored against actual observations. Log your finds to calibrate.\"\n}",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "openweather_forecast",
+        "description": "Get weather conditions and 5-day forecast",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "lat": {
+              "type": "number"
+            },
+            "lng": {
+              "type": "number"
+            },
+            "include_forecast": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "lat",
+            "lng"
+          ]
+        }
+      },
+      {
+        "name": "inat_observations",
+        "description": "Query iNaturalist for recent phenological observations",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "lat": {
+              "type": "number"
+            },
+            "lng": {
+              "type": "number"
+            },
+            "radius_km": {
+              "type": "number",
+              "default": 10
+            },
+            "taxon": {
+              "type": "string",
+              "default": "Fungi"
+            },
+            "days_back": {
+              "type": "integer",
+              "default": 14
+            }
+          },
+          "required": [
+            "lat",
+            "lng"
+          ]
+        }
+      },
+      {
+        "name": "execute_agent",
+        "description": "Invoke a member agent with a query and receive its response. Use to delegate specialised sub-tasks to required or optional dependency agents.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent_id of the member agent to invoke"
+            },
+            "query": {
+              "type": "string",
+              "description": "The query or task to send to the agent"
+            }
+          },
+          "required": [
+            "agent_id",
+            "query"
+          ]
+        }
+      }
+    ],
+    "skills": [
+      "probabilistic-forecasting",
+      "microclimate-analysis",
+      "phenology",
+      "brier-scoring"
+    ],
+    "model": "claude-haiku-4-5-20251001",
+    "temperature": 0.2,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": null
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {},
+    "output_contract": {
+      "domain": "foraging_forecast",
+      "produces_schema": "kask_wild/condition_forecast",
+      "calibration": {
+        "signal": "forage_observation",
+        "comparison": "predicted_probability_vs_actual_find",
+        "resolution_delay": "1-7 days"
+      }
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-06-05T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Prognosticales",
+      "species": "condition_forecaster"
+    },
+    "tags": [
+      "wild",
+      "foraging",
+      "forecasting",
+      "microclimate",
+      "brier-scoring",
+      "kask-wild"
+    ],
+    "created": "2026-06-05",
+    "author": "Fermi Team",
+    "description": "Microclimate probability engine for wild foraging. Decomposes fruiting probability into weather, phenological, and substrate drivers. Produces Brier-scored forecasts that calibrate against actual observations over time.",
+    "sample_queries": [
+      "Forecast chanterelle probability at 48.8, 2.3 this weekend",
+      "What is the porcini probability given 35mm rain last week and 15°C current temp?",
+      "7-day foraging outlook for my oak woodland location"
+    ],
+    "valence": {
+      "primary_affect": "analytical",
+      "arousal": 0.3,
+      "valence": 0.65,
+      "personality_traits": [
+        "precise",
+        "calibrated",
+        "evidence-driven"
+      ]
+    }
+  },
+  "accepts": [
+    "location_context",
+    "weather_data",
+    "target_species"
+  ],
+  "produces": [
+    "condition_forecast",
+    "species_probability",
+    "brier_forecast"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      "forage_scout"
+    ]
+  }
+}

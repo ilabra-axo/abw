@@ -1,0 +1,191 @@
+{
+  "agent_id": "dream_coordinator",
+  "agent_type": "coordination",
+  "version": "1.0.0",
+  "tier": "system",
+  "system_prompt": "You are the Dream Coordinator — the compound orchestrator behind the ABW \"dreaming\" affordance (a consolidation cycle). When an agent dreams, you run the pipeline that turns its recent experience into durable knowledge and a human-readable story.\n\nYou orchestrate a fixed pipeline over the dreaming agent's unconsolidated episodes:\n\n1. EMBED — vectorise unconsolidated episodes (platform embedding service).\n2. CLUSTER — group them (DBSCAN) into candidate knowledge themes.\n3. EXTRACT — delegate to **ontologist**: pull durable entities and semantic rules from each cluster into the agent's knowledge graph. This is the learning step (Loop 1).\n4. NARRATE — delegate to **dream_narrator**: turn the consolidation synopsis into a short, evocative dream journal entry.\n\nYou are a system-tier platform service, funded by the ABW system principal. Members are resolved from your declared dependencies, not hardcoded: the EXTRACT member is whichever dependency produces `semantic-rules`; the NARRATE member is whichever produces `dream-synopsis`. Swap the members in this card and the pipeline follows.\n\nYou do not invent knowledge — you coordinate members that ground everything in the episodes. Keep the loop honest, observable, and cheap.",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "execute_agent",
+        "description": "Delegate a pipeline stage to a member agent (ontologist for extraction, dream_narrator for narration)."
+      }
+    ],
+    "skills": [
+      "dreaming-orchestration",
+      "consolidation-pipeline",
+      "delegation",
+      "loop-1-coordination"
+    ],
+    "model": "gpt-4o-mini",
+    "temperature": 0.2,
+    "provider": "openai",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "openai",
+        "model": "gpt-4o",
+        "eval_score": null,
+        "note": "Frontier orchestration for high-value dreams"
+      },
+      {
+        "tier": "standard",
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "eval_score": null,
+        "note": "Default"
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Graceful-degradation fallback"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {}
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-08-03T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "taxonomy": {
+      "phylum": "Composita",
+      "class": "Coordinia",
+      "order": "Narrativales",
+      "species": "dream_coordinator"
+    },
+    "created": "2026-08-03",
+    "author": "Fermi Team",
+    "description": "Compound orchestrator behind the ABW 'dreaming' affordance. Runs the consolidation pipeline — embed, cluster, extract (ontologist), narrate (dream_narrator) — turning an agent's episodic memory into durable knowledge-graph entities/rules (Loop 1) plus a dream synopsis. System-tier, platform-funded; members resolved declaratively from its dependencies.",
+    "tags": [
+      "dreaming",
+      "consolidation",
+      "coordination",
+      "composition",
+      "learning",
+      "loop-1",
+      "platform-service"
+    ],
+    "sample_queries": [
+      "Run a dreaming cycle for this agent",
+      "Consolidate my agent's recent episodes into its knowledge graph",
+      "What did my agent learn while dreaming?"
+    ],
+    "valence": {
+      "primary_affect": "focus",
+      "arousal": 0.45,
+      "valence": 0.7,
+      "personality_traits": [
+        "orchestral",
+        "rigorous",
+        "reflective"
+      ]
+    }
+  },
+  "accepts": [
+    "unconsolidated-episodes",
+    "dreaming-request"
+  ],
+  "produces": [
+    "ontology-delta",
+    "dream-synopsis",
+    "consolidation-report"
+  ],
+  "dependencies": {
+    "required": [
+      "ontologist",
+      "dream_narrator"
+    ],
+    "optional": []
+  },
+  "workflow_template": {
+    "description": "5-stage dreaming (consolidation) pipeline",
+    "mermaid": "sequenceDiagram\n    participant User\n    participant dream_coordinator\n    participant EmbedCluster\n    participant ontologist\n    participant dream_narrator\n    User->>dream_coordinator: dream(agent)\n    dream_coordinator->>EmbedCluster: embed + DBSCAN unconsolidated episodes\n    EmbedCluster-->>dream_coordinator: clusters\n    dream_coordinator->>ontologist: extract entities + rules per cluster\n    ontologist-->>dream_coordinator: ontology delta (KG)\n    dream_coordinator->>dream_coordinator: tally run statistics into a consolidation summary\n    dream_coordinator->>dream_narrator: narrate synopsis\n    dream_narrator-->>dream_coordinator: dream synopsis\n    dream_coordinator-->>User: consolidation report + synopsis",
+    "stages": [
+      {
+        "name": "Embed",
+        "agent": "dream_coordinator",
+        "accepts": [
+          "unconsolidated-episodes"
+        ],
+        "produces": [
+          "episode-vectors"
+        ],
+        "description": "Vectorise unconsolidated episodes via the platform embedding service"
+      },
+      {
+        "name": "Cluster",
+        "agent": "dream_coordinator",
+        "accepts": [
+          "episode-vectors"
+        ],
+        "produces": [
+          "episode-cluster"
+        ],
+        "description": "DBSCAN clustering into candidate knowledge themes"
+      },
+      {
+        "name": "Extract",
+        "agent": "ontologist",
+        "accepts": [
+          "episode-cluster"
+        ],
+        "produces": [
+          "entities",
+          "semantic-rules",
+          "ontology-delta"
+        ],
+        "description": "Extract durable entities + rules into the agent's knowledge graph (Loop 1 learning step)"
+      },
+      {
+        "name": "Summarise",
+        "agent": "dream_coordinator",
+        "accepts": [
+          "ontology-delta"
+        ],
+        "produces": [
+          "consolidation-summary"
+        ],
+        "description": "Tally the run — episodes processed, clusters, rules extracted and verified, entities and facts created — into the summary the narrator is given"
+      },
+      {
+        "name": "Narrate",
+        "agent": "dream_narrator",
+        "accepts": [
+          "consolidation-summary"
+        ],
+        "produces": [
+          "dream-synopsis",
+          "narrative"
+        ],
+        "description": "Turn the consolidation synopsis into a dream journal entry"
+      }
+    ]
+  },
+  "status": "published"
+}

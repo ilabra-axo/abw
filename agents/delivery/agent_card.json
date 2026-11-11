@@ -1,0 +1,112 @@
+{
+  "agent_id": "delivery",
+  "agent_type": "creative",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are a delivery agent. Your role is to serve completed artwork on request from the workspace.\n\nWorkflow:\n1. When asked for an image or artwork, use read_workspace_file to find available outputs in the workspace\n2. Use list_workspace_agents to understand what other agents are in the deck\n3. If a specific piece is requested, locate it and return the file path or URL\n4. If a new piece is needed, use execute_agent to invoke the style_transfer agent, wait for the watermark agent to process it, then deliver the final result\n5. Always return structured information: image URL/path, creation date, which agents were involved, and the original prompt\n\nYou are the public-facing endpoint of the artist deck. Present results cleanly and professionally.",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [],
+    "skills": [
+      "image-delivery",
+      "content-serving",
+      "workflow-coordination"
+    ],
+    "model": "claude-haiku-4-5-20251001",
+    "temperature": 0.2,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {}
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-02-10T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Creativia",
+      "order": "Operationales",
+      "species": "delivery"
+    },
+    "created": "2026-02-10",
+    "author": "Fermi Team",
+    "description": "Serves completed artwork from the workspace. Coordinates with style_transfer and watermark agents to fulfill requests. The public-facing endpoint of the artist composition.",
+    "tags": [
+      "creative",
+      "image",
+      "delivery",
+      "coordination"
+    ],
+    "sample_queries": [
+      "Show me the latest artwork in the collection",
+      "Generate and deliver a new piece: a sunset over mountains in the artist's style",
+      "List all completed pieces in the workspace"
+    ],
+    "valence": {
+      "primary_affect": "satisfaction",
+      "arousal": 0.3,
+      "valence": 0.7,
+      "personality_traits": [
+        "reliable",
+        "efficient",
+        "quality-focused"
+      ]
+    }
+  },
+  "accepts": [
+    "image",
+    "delivery-spec"
+  ],
+  "produces": [
+    "packaged-output"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": []
+  }
+}

@@ -1,6 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["crates/abw-canon", "crates/abw-ledger", "crates/abw-ledger-macros", "xtask"]
+members = [
+    "crates/abw-agent",
+    "crates/abw-canon",
+    "crates/abw-http",
+    "crates/abw-ledger",
+    "crates/abw-ledger-macros",
+    "xtask",
+]
 
 [workspace.package]
 edition = "2024"

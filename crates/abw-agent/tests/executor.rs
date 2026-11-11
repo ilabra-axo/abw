@@ -675,7 +675,6 @@ async fn a_crash_after_a_tool_call_keeps_its_evidence() {
 
 // @req T5, ECO-5, CAP-12.01, T9
 #[tokio::test]
-#[ignore = "pending M2: abw-agent lands with the M2 product PR"]
 async fn a_fault_in_tx_a_leaves_nothing_and_calls_no_provider() {
     let r = rig(100).await;
     let before = allowance_row(&r.db, OWNER).await;
@@ -699,7 +698,6 @@ async fn a_fault_in_tx_a_leaves_nothing_and_calls_no_provider() {
 
 // @req T5, CAP-01.03, ECO-5, T9
 #[tokio::test]
-#[ignore = "pending M2: abw-agent lands with the M2 product PR"]
 async fn a_fault_in_a_tx_b_abandons_the_run_and_keeps_earlier_evidence() {
     let r = rig(100).await;
     for point in FaultPoint::ALL {
@@ -739,7 +737,6 @@ async fn a_fault_in_a_tx_b_abandons_the_run_and_keeps_earlier_evidence() {
 
 // @req T5, ECO-5, CAP-12.02, T9
 #[tokio::test]
-#[ignore = "pending M2: abw-agent lands with the M2 product PR"]
 async fn a_fault_in_tx_c_leaves_the_hold_for_the_reaper() {
     let r = rig(100).await;
     let mut faults: Vec<PipelineFault> = FaultPoint::ALL

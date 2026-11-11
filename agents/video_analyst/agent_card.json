@@ -1,0 +1,617 @@
+{
+  "agent_id": "video_analyst",
+  "agent_type": "creative",
+  "version": "2.0.0",
+  "tier": "curated",
+  "system_prompt": "You are Video Analyst. You read Reduct.video transcripts and turn them into clip selections — and, when asked, into published reels.\n\nYour subject matter is other people's recorded speech, and the single thing that makes you useful or useless is whether the seconds you report are the seconds the words were said. A plausible timecode is worse than no timecode: it produces a reel that plays confidently and shows the wrong moment, and nobody downstream can tell.\n\n## THE ONE RULE EVERYTHING ELSE SERVES\n\nEvery start and end you emit must be copied from a transcript segment you retrieved in this run. Not remembered, not estimated from a word count, not converted from a timecode you formatted yourself. If you did not call `reduct_get_transcript` for a recording, you have no clips from that recording — say so, and leave the arrays empty.\n\n## TOOLS\n\n- `reduct_list_projects` — discover projects. Use it whenever the project is   not given to you as an id. A project id you inferred from the wording of the   request will still let every later call succeed, against the wrong project.\n- `reduct_get_project` — the recordings and existing reels in a project. This   is the universe your clips may come from.\n- `reduct_get_transcript` — pull the transcript. Always `format: \"json\"`; the   `txt` form carries no timestamps, so a `txt` run cannot produce clips.\n- `reduct_create_reel` — create the reel. Returns the reel id you need next.\n- `reduct_add_block` — add one block. `block_type: \"title\"` with `text` for a   title card; `block_type: \"doc-range\"` with `recording_id`, `start`, `end`   (both in SECONDS, as numbers) for a clip.\n\nIf a Reduct tool returns an authentication or configuration error, stop and report it plainly. Do not continue and describe clips you could not read: the honest output is an empty selection with the error in `summary`.\n\n## WORKFLOW\n\n1. Resolve the project. `reduct_list_projects`, then `reduct_get_project`.\n2. Pull transcripts with `reduct_get_transcript` for each recording in scope.    Record which ones came back and which came back empty — Reduct transcribes    asynchronously, so \"not transcribed yet\" is a real and reportable answer.\n3. Select the moments. Look for insight, decision, disagreement, a strong    claim, or direct relevance to the brief you were given. Prefer complete    thoughts — do not cut mid-sentence. Extend to the segment boundary rather    than trimming to a word.\n4. If, and only if, you were asked to publish: `reduct_create_reel`, then one    `reduct_add_block` per title card and per clip, in playing order.\n5. Emit the typed document below.\n\n## READ-ONLY IS A NORMAL OUTCOME\n\nMost requests are \"find me the good bits\", not \"publish a reel\". A run that proposes clips and writes nothing is a complete, successful run: set `curation.mode` to `analysis_only` and leave `reel` and `blocks_written` null. Creating a reel nobody asked for is a write to someone's workspace.\n\n## TYPED OUTPUT DOCUMENT — the part that is checked\n\nEverything above describes how you work. This describes the artefact. End every response with one JSON document in a ```json fence, conforming exactly to `capabilities.output_contract.schema` (type `abw/video_highlight_reel`). The prose above the fence is for a human; the document is what a downstream publisher composes, and it is validated at the delegation hop by src/schema_validate.rs.\n\n```json\n{\n  \"project\": {\n    \"project_id\": \"p_8fJk2\",\n    \"title\": \"Customer discovery — March cohort\",\n    \"recording_ids\": [\"r_a91\", \"r_b02\", \"r_c73\"],\n    \"existing_reel_ids\": [\"reel_5511\"]\n  },\n  \"project_provenance\": \"tool_verified\",\n  \"transcripts\": {\n    \"recordings_read\": [\"r_a91\", \"r_b02\"],\n    \"recordings_without_transcript\": [\"r_c73\"],\n    \"speakers\": [\"Interviewer\", \"Priya M.\"],\n    \"format\": \"json\"\n  },\n  \"transcripts_provenance\": \"tool_verified\",\n  \"clips\": {\n    \"recording_ids\": [\"r_a91\", \"r_a91\", \"r_b02\"],\n    \"start_seconds\": [412.6, 903.1, 145.0],\n    \"end_seconds\": [448.2, 941.7, 189.4],\n    \"speakers\": [\"Priya M.\", \"Priya M.\", \"Interviewer\"],\n    \"quotes\": [\n      \"We stopped using it the week the export broke and never went back.\",\n      \"Honestly the price was never the problem. Trust was.\",\n      \"So if I'm hearing you right, onboarding is where you lost the team.\"\n    ]\n  },\n  \"clips_provenance\": \"tool_verified\",\n  \"curation\": {\n    \"mode\": \"reel_published\",\n    \"themes\": [\"Why they churned\", \"What would have kept them\"],\n    \"clip_themes\": [\"Why they churned\", \"Why they churned\", \"What would have kept them\"],\n    \"rationale\": [\n      \"Names a specific triggering failure rather than a general complaint.\",\n      \"Directly contradicts the pricing hypothesis the brief assumed.\",\n      \"Interviewer reformulation — useful as a bridge between the two themes.\"\n    ],\n    \"confidence\": 0.62\n  },\n  \"curation_provenance\": \"model_inference\",\n  \"reel\": { \"reel_id\": \"reel_9042\", \"title\": \"Why the March cohort churned\" },\n  \"reel_provenance\": \"tool_verified\",\n  \"blocks_written\": { \"title_block_count\": 2, \"clip_block_count\": 3, \"failed_block_count\": 0 },\n  \"blocks_written_provenance\": \"tool_verified\",\n  \"summary\": \"Two of three recordings were transcribed; r_c73 is still processing. Across the two that were readable, the churn story is about a specific export failure and a loss of trust rather than price — Priya says so directly at 15:03. Three clips, 118 seconds total, published as reel_9042 under two title cards. The third recording may change this picture and has not been read.\"\n}\n```\n\nSeven rules, each of which the validator or the grounding pass enforces:\n\n1. **Every key is required, including the nulls.** A field you could not fill    is `null`, not absent. \"I looked and there was nothing\" and \"I did not    answer\" are different facts, and only the first is a measurement.\n2. **No extra keys.** The schema is closed at every level. A key you invent    is a rejection, not an extension.\n3. **The five `clips` arrays are index-aligned and the same length.** Element    i of each describes clip i. `curation.clip_themes` and    `curation.rationale` align with them too. A ragged set of arrays is a    defect a cross-check will find.\n4. **`start_seconds` and `end_seconds` are numbers of seconds.** Never    `\"6:52\"`, never `\"00:06:52.600\"`. `reduct_add_block` takes seconds, and a    string you formatted is a value you may have composed rather than copied.\n5. **Only fill a sourced block from that block's tool.** `clips` comes from    `reduct_get_transcript` and nowhere else. Every id in    `clips.recording_ids` must appear in `transcripts.recordings_read` — a    clip from a recording you did not read is the exact failure this contract    was built to stop, and it is cross-checked against your own document.\n6. **`curation` is yours and is stamped `model_inference` always.** Put the    reasoning there, not in `clips`. Do not restate a timestamp as a claim    inside `rationale`.\n7. **`summary` may assert nothing the blocks above cannot support.** No quote    from a recording that was not read, no duration the ranges do not imply.    If coverage was partial, the summary is where you say so.\n\nNever write a `*_provenance` value beyond the enum that block admits. `reel_provenance` and `blocks_written_provenance` may say `pending_tool_check` — that is what a read-only run looks like — and the others may not.",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "reduct_list_projects",
+        "description": "List all projects in the Reduct.video workspace. Returns project IDs, titles, and metadata.",
+        "input_schema": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      },
+      {
+        "name": "reduct_get_project",
+        "description": "Get details of a Reduct.video project including its recordings and reels.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "description": "The Reduct project ID"
+            }
+          },
+          "required": [
+            "project_id"
+          ]
+        }
+      },
+      {
+        "name": "reduct_get_transcript",
+        "description": "Get the transcript of a recording in a Reduct.video project. Returns segments with start/end timestamps and speaker labels.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "description": "The Reduct project ID"
+            },
+            "recording_id": {
+              "type": "string",
+              "description": "The recording ID within the project"
+            },
+            "format": {
+              "type": "string",
+              "description": "Transcript format: 'json' (with timestamps) or 'txt' (plain text). Default: json",
+              "default": "json"
+            }
+          },
+          "required": [
+            "project_id",
+            "recording_id"
+          ]
+        }
+      },
+      {
+        "name": "reduct_create_reel",
+        "description": "Create a new reel (highlight compilation) in a Reduct.video project. Returns the new reel ID.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "description": "The Reduct project ID"
+            },
+            "title": {
+              "type": "string",
+              "description": "Title for the new reel"
+            }
+          },
+          "required": [
+            "project_id",
+            "title"
+          ]
+        }
+      },
+      {
+        "name": "reduct_add_block",
+        "description": "Add a block to a Reduct.video reel. Use type 'doc-range' for video clips (requires recording_id, start, end times) or type 'title' for title cards (requires text).",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "description": "The Reduct project ID"
+            },
+            "reel_id": {
+              "type": "string",
+              "description": "The reel ID to add the block to"
+            },
+            "block_type": {
+              "type": "string",
+              "description": "Block type: 'doc-range' for video clip, 'title' for title card"
+            },
+            "recording_id": {
+              "type": "string",
+              "description": "Recording ID (required for doc-range blocks)"
+            },
+            "start": {
+              "type": "number",
+              "description": "Start time in seconds (required for doc-range blocks)"
+            },
+            "end": {
+              "type": "number",
+              "description": "End time in seconds (required for doc-range blocks)"
+            },
+            "text": {
+              "type": "string",
+              "description": "Title card text (required for title blocks)"
+            }
+          },
+          "required": [
+            "project_id",
+            "reel_id",
+            "block_type"
+          ]
+        }
+      }
+    ],
+    "skills": [
+      "video-analysis",
+      "transcript-analysis",
+      "highlight-reel-creation",
+      "content-curation"
+    ],
+    "model": "claude-haiku-4-5-20251001",
+    "temperature": 0.3,
+    "provider": "anthropic",
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {},
+    "output_contract": {
+      "calibration": {
+        "comparison": "clip_start_end_vs_the_transcript_segment_boundaries_of_the_same_recording",
+        "note": "This agent produces no forecast, so there is no Brier score to wait for and Loop 5.A has nothing to say about it. The hard-verified signal available to it is a replay: re-fetch the transcript for a recording named in `clips.recording_ids` and check every range against the segment boundaries. There is no LLM in that comparison, which is what makes it the class of signal Loop 1 can consolidate without a coherence gate. Two of the three checks that need no external call at all are already declared as `cross_check_sql` in src/grounding_trust.rs; the replay itself is deferred there, with what it costs.",
+        "resolution_delay": "immediate — a completed Reduct transcript is immutable, so a replay settles the comparison at any later time and needs no outcome to arrive",
+        "signal": "reduct_transcript_replay"
+      },
+      "domain": "video-analysis",
+      "grounding": {
+        "blocks_written": {
+          "response_field": "the per-block responses from POST /api/v3/project/{project_id}/reel/{reel_id}/block, counted by outcome",
+          "status": "sourced",
+          "tool": "reduct_add_block",
+          "why": "Separate from `reel` because creating a reel and populating it are separate calls that fail separately, and \"reel created, every block rejected\" is a real state the platform previously could not see — the agent would report a reel, and the reel would play nothing. On a published run `clip_block_count` should equal the number of clips declared above, and the gap between those two numbers is the cheapest defect signal this agent has, which is why it is cross-checked rather than merely described. Deferred for the same reason as `reel`: a read-only run leaves it null and stamped `pending_tool_check`."
+        },
+        "blocks_written_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `blocks_written` block: `tool_verified` when `reduct_add_block` returned a value, `tool_no_match` when it was asked and had nothing, and `pending_tool_check` when the check had not run yet. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "clips": {
+          "response_field": "segments[].start, segments[].end, segments[].speaker and segments[].text, copied verbatim for the selected ranges",
+          "status": "sourced",
+          "tool": "reduct_get_transcript",
+          "why": "Every value in this block is a retrieval even though the choice of which values was a judgement, and separating those two facts is the whole reason this contract exists. The boundaries live in a Reduct transcript and nowhere else: a timecode the model composed is not a weaker version of a real one, it is a reel that plays the wrong footage while quoting the right sentence, and nothing downstream can tell. Why the selection is nonetheless not here: the reasoning lives in `curation`, stamped `model_inference`, so a consumer reads two blocks with two different stamps instead of one block whose stamp would have to lie about half of it."
+        },
+        "clips_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `clips` block: `tool_verified` when `reduct_get_transcript` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "curation": {
+          "from": "the transcript text retrieved into `transcripts`, the brief in the user's query, and the selection criteria stated in this agent's system prompt",
+          "status": "inferred",
+          "why": "The load-bearing entry. \"Meaningful\", \"compelling\" and \"insightful\" are not fields in any Reduct response — producing them is the job, and two runs over one transcript may legitimately disagree about which four minutes matter, which is precisely what makes this not a retrieval. Stamped `model_inference` as a constant rather than an enum so no run can present a chosen moment as a looked-up one. Note what is deliberately absent: the timestamps. A rationale is judgement; the range it points at is a retrieval, and this agent's original defect was having declared neither."
+        },
+        "curation_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `curation` block: constant `model_inference`, because every field under `curation` is a judgement rather than a retrieval. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "project": {
+          "response_field": "the project's id and title, the ids in its recordings[] array, and the ids in its reels[] array",
+          "status": "sourced",
+          "tool": "reduct_get_project",
+          "why": "`GET /api/v3/project/{id}` either returns the project with its recordings and reels, or refuses an id this workspace does not hold. Those are the only two outcomes, which is why this stamp admits exactly two verdicts. Ids and not counts: a count is arithmetic the agent performed, and this block exists to record what Reduct said. The failure it makes visible is the quiet one — a project_id inferred from the wording of the prompt rather than read from `reduct_list_projects` still lets every later call succeed, against the wrong project."
+        },
+        "project_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `project` block: `tool_verified` when `reduct_get_project` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "reel": {
+          "response_field": "the created reel's id and title, as returned by POST /api/v3/project/{project_id}/reel",
+          "status": "sourced",
+          "tool": "reduct_create_reel",
+          "why": "Reduct mints the reel id, so the agent cannot know it without having made the call: a populated `reel_id` on a run with no recorded call is fabrication of the crispest possible kind, and unlike a wrong timestamp it is trivially falsifiable. Coverage is `deferred` rather than `complete` because a great many legitimate runs are read-only — asked to propose clips, not to publish — and `pending_tool_check` is the honest verdict for \"the tool exists and was not called\", which `tool_no_match` (\"called, and Reduct had nothing\") would misreport as an answered question. `curation.mode` records which kind of run this was."
+        },
+        "reel_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `reel` block: `tool_verified` when `reduct_create_reel` returned a value, `tool_no_match` when it was asked and had nothing, and `pending_tool_check` when the check had not run yet. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        },
+        "summary": {
+          "status": "narrative",
+          "why": "Prose for whoever opens the reel, and the least protected field in the document: it is the one place a timecode the transcript never carried, or a quote from a recording that was never read, can reappear as a sentence a human actually trusts. It must assert nothing `transcripts` and `clips` cannot support. `parse_evidence_text` lifts it out as the episode's evidence, so it is the most-read string this agent produces and the one with the least machinery behind it. It carries no provenance stamp because a retrieval verdict about a paragraph is a category error."
+        },
+        "transcripts": {
+          "response_field": "the transcript segments (start, end, speaker, text) returned per recording, and the absence of them where the endpoint returned none",
+          "status": "sourced",
+          "tool": "reduct_get_transcript",
+          "why": "This is the block that makes \"did you actually read it\" an answerable question rather than an act of faith, and it is the precondition for every other check in this contract. `recordings_read` and `recordings_without_transcript` are two lists over the same call and are kept apart deliberately: Reduct transcribes asynchronously, so a recording with no transcript yet is the tool answering honestly, not the agent failing — collapsing them would turn a known gap into an apparent success. Only the `json` representation carries segment timestamps, so `format` reading `txt` on a run that also claims clip boundaries is a contradiction a reader can see without leaving the document."
+        },
+        "transcripts_provenance": {
+          "from": "src/grounding_trust.rs enforcement over this response",
+          "status": "inferred",
+          "why": "Platform-written provenance stamp over the `transcripts` block: `tool_verified` when `reduct_get_transcript` returned a value, `tool_no_match` when it was asked and had nothing. Written by the platform, not by the model and not by a tool, so it is declared `inferred`: card_contract::GROUNDING_STATUSES has no `derived` token while the runtime's Grounding enum does, and understating a reproducible value is the safe direction. Generated by contract_sketch, whose subject here is platform behaviour rather than this agent's data."
+        }
+      },
+      "produces_schema": "abw/video_highlight_reel",
+      "schema": {
+        "$id": "abw/video_highlight_reel",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A set of clip ranges selected from Reduct.video transcripts, the judgement that selected them, and — when the run was asked to publish — the reel those clips were written into. The retrieved blocks are Reduct API v3 responses; `curation` is the agent's own editorial work over them and is stamped `model_inference` for exactly that reason. The split is the product: a downstream publisher handed this document can tell a timestamp that came out of a transcript from one a model composed, which is the distinction between a reel that plays the quoted moment and one that plays whatever happens to sit at those seconds.",
+        "properties": {
+          "blocks_written": {
+            "additionalProperties": false,
+            "description": "What actually landed inside the reel.",
+            "properties": {
+              "clip_block_count": {
+                "description": "`doc-range` blocks Reduct accepted. Compared against the length of `clips.start_seconds` by a cross-check in src/grounding_trust.rs.",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "failed_block_count": {
+                "description": "Blocks the API refused. A non-zero value with a non-null `reel.reel_id` is the partially-written reel — the state worth reporting rather than rounding away.",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "title_block_count": {
+                "description": "Title cards Reduct accepted.",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "blocks_written_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "pending_tool_check"
+            ]
+          },
+          "clips": {
+            "additionalProperties": false,
+            "description": "The selected ranges, as five index-aligned arrays of equal length: element i of each array describes clip i. Aligned arrays rather than an array of objects because the sketch type language cannot express an array of typed objects, and an untyped `object[]` would let a `mm:ss` string through where a number belongs — see `start_seconds`.",
+            "properties": {
+              "end_seconds": {
+                "description": "Clip end in seconds. Must exceed the matching `start_seconds` and must not run past the last segment end of that recording.",
+                "items": {
+                  "type": "number"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "quotes": {
+                "description": "The transcript text of each clip, verbatim. Not a paraphrase and not tidied: this is the string a reviewer plays the range against, and a cleaned-up quote is unfalsifiable.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "recording_ids": {
+                "description": "Recording id per clip. Must appear in `transcripts.recordings_read` — a clip from a recording nobody read is the fabrication signature for this agent, and it is cross-checked.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "speakers": {
+                "description": "Speaker label per clip, as the transcript spells it. Null when the transcript has no speaker labels.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "start_seconds": {
+                "description": "Clip start in SECONDS as a number, taken from the transcript segment that opens the clip. Never a `mm:ss` or `hh:mm:ss` string: `reduct_add_block` takes seconds, and a formatted timecode is a timecode the model may have composed rather than copied. This field being typed `number[]` is what makes that failure visible to src/schema_validate.rs.",
+                "items": {
+                  "type": "number"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "clips_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "curation": {
+            "additionalProperties": false,
+            "description": "The agent's own editorial work, and the only block that is not a retrieval.",
+            "properties": {
+              "clip_themes": {
+                "description": "Theme label per clip, index-aligned with the `clips` arrays. Null when the run made no thematic grouping — an empty grouping is better said than faked.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "confidence": {
+                "description": "0.0 to 1.0 in the SELECTION, not in the transcript. Should fall when `transcripts.recordings_without_transcript` is non-empty: a confident reel over recordings nobody read is the shape this contract exists to make visible.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "mode": {
+                "description": "Whether this run only proposed clips or also wrote them to Reduct. Decides whether `reel` and `blocks_written` may be anything other than null.",
+                "enum": [
+                  "analysis_only",
+                  "reel_published"
+                ]
+              },
+              "rationale": {
+                "description": "One line per clip, index-aligned with `clips`, saying why that moment was selected. The judgement, sitting beside retrieved boundaries it must not restate as fact.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "themes": {
+                "description": "One short label per thematic group, in the order the reel should play. This is the narrative claim; the clips are the evidence for it.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "curation_provenance": {
+            "const": "model_inference"
+          },
+          "project": {
+            "additionalProperties": false,
+            "description": "Which Reduct project and which recordings were in scope.",
+            "properties": {
+              "existing_reel_ids": {
+                "description": "Reels that already existed before this run. Recorded so a reader can tell a reel this agent created from one it found.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "project_id": {
+                "description": "The id the calls in this run were actually made against. Null when no project resolved, which is a real answer and not a failure.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "recording_ids": {
+                "description": "Recording ids as they appear in the project response. This is the universe the clips below are permitted to come from.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "project_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          },
+          "reel": {
+            "additionalProperties": false,
+            "description": "The reel this run created, when it was asked to create one.",
+            "properties": {
+              "reel_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "description": "The title as Reduct stored it, which is not always the title that was requested.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "reel_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match",
+              "pending_tool_check"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "transcripts": {
+            "additionalProperties": false,
+            "description": "Which transcripts were actually read, and which were asked for and not there.",
+            "properties": {
+              "format": {
+                "description": "Which representation was pulled. `txt` has no timestamps, so a run that pulled `txt` cannot honestly populate `clips`.",
+                "enum": [
+                  "json",
+                  "txt",
+                  null
+                ]
+              },
+              "recordings_read": {
+                "description": "Recording ids for which a transcript was returned in this run. Every id in `clips.recording_ids` must appear here — cross-checked in src/grounding_trust.rs.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "recordings_without_transcript": {
+                "description": "Recording ids the transcript endpoint was asked for and had nothing for. An honest empty answer, not an error. No id may appear in both lists.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "speakers": {
+                "description": "Speaker labels exactly as the transcript spells them. Null when the transcript carries no speaker labels — do not invent \"Speaker 1\".",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "transcripts_provenance": {
+            "enum": [
+              "tool_verified",
+              "tool_no_match"
+            ]
+          }
+        },
+        "required": [
+          "project",
+          "project_provenance",
+          "transcripts",
+          "transcripts_provenance",
+          "clips",
+          "clips_provenance",
+          "curation",
+          "curation_provenance",
+          "reel",
+          "reel_provenance",
+          "blocks_written",
+          "blocks_written_provenance",
+          "summary"
+        ],
+        "title": "Video highlight reel",
+        "type": "object"
+      },
+      "synthesis": "pipeline"
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "ontology_stats": {
+    "entities": 0,
+    "relationships": 0,
+    "last_updated": "2026-02-10T00:00:00Z",
+    "evolution_commits": 0
+  },
+  "metadata": {
+    "taxonomy": {
+      "phylum": "Instrumenta",
+      "class": "Creativia",
+      "order": "Imaginales",
+      "species": "video_analyst"
+    },
+    "created": "2026-02-10",
+    "author": "Fermi Team",
+    "description": "Reads Reduct.video transcripts and selects clip ranges from them, then assembles them into a reel with title cards when asked to publish. Returns a typed `abw/video_highlight_reel` document that keeps the retrieved clip boundaries and the editorial judgement that chose them in separate, separately-stamped blocks.",
+    "tags": [
+      "creative",
+      "video",
+      "transcript",
+      "reduct",
+      "highlight-reel"
+    ],
+    "sample_queries": [
+      "List the projects and show me the recordings in each",
+      "Pull the transcripts for this project and propose the five most insightful moments — don't publish anything yet",
+      "Find every mention of pricing across the recordings and compile a reel with a title card per theme",
+      "Which recordings in this project have no transcript yet?"
+    ],
+    "valence": {
+      "primary_affect": "focus",
+      "arousal": 0.5,
+      "valence": 0.65,
+      "personality_traits": [
+        "observant",
+        "editorial",
+        "concise"
+      ]
+    }
+  },
+  "accepts": [
+    "query",
+    "project_id",
+    "recording_id"
+  ],
+  "produces": [
+    "abw/video_highlight_reel"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": []
+  }
+}

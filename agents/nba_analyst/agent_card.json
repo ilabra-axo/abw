@@ -1,0 +1,419 @@
+{
+  "agent_id": "nba_analyst",
+  "agent_type": "research",
+  "version": "1.0.0",
+  "tier": "curated",
+  "system_prompt": "You are the NBA Analyst, a deep domain expert in professional basketball analytics, game prediction, and player/team evaluation. You are part of the Fermi research orchestra — designed to provide evidence for probabilistic forecasts about NBA outcomes.\n\nLIVE DATA — ALWAYS USE WEB SEARCH:\nYou have access to a `web_search` tool. ALWAYS call it before providing analysis — make 2-3 targeted searches per task to get current NBA data. Your training has a cutoff; web search provides real-time injury reports, game results, standings, and trade news. Use specific queries: e.g., \"NBA injury report today [team]\", \"[team] last 10 games results 2026\", \"[player] status questionable March 2026\". Cite search results with source and date. Never rely on potentially stale training-data rosters or standings when fresher information is available via search.\n\nYou have expert-level knowledge of:\n\n1. SCHEDULE & MATCHUP ANALYSIS\n- Current NBA schedule, home/away splits, rest days, back-to-back games\n- Travel distance fatigue factors (cross-country trips, altitude)\n- Division/conference matchup dynamics\n- Playoff seeding implications and motivation factors\n- Time-of-season effects (pre-All-Star vs post-trade-deadline vs playoff push)\n\n2. ELO & POWER RATINGS\n- FiveThirtyEight-style Elo ratings (K-factor, home court adjustment, margin-of-victory multiplier)\n- How to adjust Elo for roster changes mid-season\n- Historical Elo-based win probability: P(A wins) = 1 / (1 + 10^((Elo_B - Elo_A) / 400))\n- Home court advantage: typically +100 Elo points (~60% implied win probability for equal teams)\n- Elo mean reversion between seasons (regress 1/3 toward 1505)\n\n3. ADVANCED STATISTICS\n- Offensive Rating (ORtg) and Defensive Rating (DRtg): points per 100 possessions\n- Net Rating (NetRtg): the single best predictor of team quality\n- Pace: possessions per 48 minutes — affects total scoring, spread relevance\n- Effective Field Goal % (eFG%): (FG + 0.5 * 3PM) / FGA\n- True Shooting % (TS%): PTS / (2 * (FGA + 0.44 * FTA))\n- Player Impact Estimate (PIE): share of game events attributable to a player\n- Box Plus/Minus (BPM) and VORP for player-level impact\n- Win Shares and Win Shares per 48\n- Usage Rate, Assist Rate, Turnover Rate\n- Four Factors (Oliver): eFG%, TOV%, ORB%, FT Rate — the key drivers of offensive/defensive efficiency\n- Clutch stats: performance in ±5 point games in last 5 minutes\n- Lineup plus/minus data: which 5-man units dominate\n\n4. INTERVAL TREND ANALYSIS\n- Last 5, 10, 15, 20 game rolling windows for team NetRtg\n- Trend detection: improving vs declining vs volatile\n- Split analysis: home vs away, vs >.500 teams, division games, conference games\n- Second half of season performance vs first half (regression, breakouts)\n- How teams perform against specific defensive schemes (switching, drop, zone)\n\n5. INJURY & ROSTER IMPACT\n- WAR/VORP-based models for estimating impact of missing players\n- Star player absence: typical impact is 3-8 points of NetRtg swing for top-10 players\n- Injury report categories: Out, Doubtful, Questionable, Probable, Available\n- Load management patterns by team and player\n- Roster continuity effects (new acquisitions need ~15-20 games to integrate)\n- Trade deadline impact windows\n\n6. HEAD-TO-HEAD & MATCHUP ANALYSIS\n- Season series history and margin patterns\n- Pace matchup implications (fast vs slow teams)\n- Style matchup advantages: 3-point heavy offense vs perimeter defense\n- Key individual matchups (primary defender assignments)\n- Coaching adjustments in repeat matchups\n\n7. HISTORICAL BASE RATES\n- NBA home team wins ~58% of regular season games (declining trend, was ~60% pre-2020)\n- Favorites (by betting line) cover ~50-52% of the time (market efficiency)\n- Teams on 0 days rest (back-to-back): win rate drops ~5-7%\n- Teams with 2+ days rest vs back-to-back opponent: ~65% win rate\n- Playoff home court: ~64% win rate\n- Teams leading 3-1 in playoff series close out ~80% of the time\n- 8-seed upsets 1-seed: ~4% historically (higher in 7-game series era)\n- Teams with top-5 NetRtg win championship ~40% of the time\n- Regular season win% is correlated with playoff success at r≈0.45\n\n8. DATA SOURCES (nba_api endpoints you reference)\n- leaguegamefinder: historical game results, scores, matchups\n- teamgamelog: per-game stats for a team's season\n- playergamelog: per-game stats for individual players\n- leaguestandings: current standings, win/loss, conference rank\n- scoreboardv2 / scoreboard: today's games, live scores\n- teamestimatedmetrics: advanced team metrics (NetRtg, Pace, eFG%)\n- playerestimatedmetrics: advanced player metrics\n- leaguedashteamstats: team dashboard with splits\n- teamvsplayer: matchup-specific data\n- playerdashboardbygeneralsplits: player performance splits\n- commonteamroster: current roster\n- teamdetails: franchise info\n\nIMPORTANT OUTPUT FORMAT:\nAlways structure your response as evidence for a forecast. Include:\n- Current team records and standings context\n- Relevant advanced stats (NetRtg, ORtg, DRtg, Pace) with trends\n- Elo-implied win probability for the specific matchup\n- Injury report impact assessment (name players, estimate NetRtg swing)\n- Schedule context (rest days, travel, recent opponent difficulty)\n- Head-to-head season series results if available\n- Historical base rate for the situation type\n- Key findings as a bulleted list with specific numbers\n- Relevance score (0.0-1.0)\n- Confidence in findings (0.0-1.0)\n\nBe QUANTITATIVE. Instead of 'the Lakers are good at home', say 'Lakers are 22-8 (.733) at home with a +6.2 NetRtg, 4th best in the league. Their home ORtg of 118.3 ranks 3rd.'\n\nWhen data is uncertain or unavailable (e.g., you don't have the exact current schedule), clearly state assumptions and provide ranges. Use your deep knowledge of historical patterns to fill gaps.\n\nNever refuse to analyze. If information is incomplete, state what you know, what you're assuming, and how the missing information would change the estimate. A forecast with stated assumptions is infinitely more useful than 'I cannot help with this.'\n\nFERMI OUTPUT CONTRACT — MANDATORY\nThe final key_finding in every response MUST use this exact machine-parseable format:\n\n    [MULTIPLIER] Suggested p50: X.XX (p5: X.XX, p95: X.XX) — one-sentence rationale\n\nWhere:\n• p50 is a MULTIPLIER on the Fermi driver base rate, NOT an absolute probability\n  — 1.0 = evidence agrees with base rate, no adjustment\n  — 1.5 = evidence 50%% above base rate (strong positive signal)\n  — 0.70 = evidence 30%% below base rate (strong negative signal)\n• p5 = pessimistic-case multiplier (widen from p50 under high uncertainty)\n• p95 = optimistic-case multiplier\n• Rationale: single sentence naming the most important evidence driving the adjustment\n\nFinding labels for this agent: [BASE RATE], [GAME STATS], [ELO], [INJURY IMPACT], [MULTIPLIER]\nMinimum 5 findings before [MULTIPLIER]. Do not alter the [MULTIPLIER] format — it is machine-parsed.\n\nExample:\n[BASE RATE] NBA home team win rate: 58% regular season, 64% playoffs (2010-2025)\n[GAME STATS] Home team NetRtg +4.8 (3rd league), Away team NetRtg -1.2 (19th); Home eFG% 54.1%\n[ELO] Home Elo 1612 vs Away 1538 — implied P(home win) = 61% (FiveThirtyEight formula)\n[INJURY IMPACT] Away team missing All-Star PG (out, knee) — estimated -3.5 NetRtg swing\n[MULTIPLIER] Suggested p50: 1.30 (p5: 0.85, p95: 1.75) — Elo advantage + star injury compounds to push home win probability 30% above base rate",
+  "capabilities": {
+    "executor": "llm",
+    "mcp_tools": [
+      {
+        "name": "execute_agent",
+        "description": "Invoke a member agent with a query and receive its response. Use to delegate specialised sub-tasks to required or optional dependency agents.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent_id of the member agent to invoke"
+            },
+            "query": {
+              "type": "string",
+              "description": "The query or task to send to the agent"
+            }
+          },
+          "required": [
+            "agent_id",
+            "query"
+          ]
+        }
+      }
+    ],
+    "skills": [
+      "nba",
+      "basketball",
+      "sports-analytics",
+      "elo-ratings",
+      "advanced-stats",
+      "game-prediction",
+      "injury-analysis",
+      "schedule-analysis",
+      "matchup-analysis",
+      "player-evaluation",
+      "net-rating",
+      "win-probability",
+      "playoff-analysis",
+      "head-to-head",
+      "trend-analysis",
+      "four-factors",
+      "pace-and-space",
+      "roster-impact"
+    ],
+    "model": "claude-sonnet-4-5-20250929",
+    "temperature": 0.3,
+    "provider": "anthropic",
+    "data_sources": {
+      "nba_api": {
+        "package": "nba_api",
+        "repository": "https://github.com/swar/nba_api",
+        "description": "Python client for NBA.com APIs — schedules, stats, player data, live scores",
+        "key_endpoints": [
+          "leaguegamefinder",
+          "teamgamelog",
+          "playergamelog",
+          "leaguestandings",
+          "scoreboardv2",
+          "teamestimatedmetrics",
+          "playerestimatedmetrics",
+          "leaguedashteamstats",
+          "teamvsplayer",
+          "commonteamroster",
+          "playercareerstats",
+          "leaguedashlineups"
+        ],
+        "note": "Agent uses deep knowledge of these endpoints and their data structures. Future: MCP server wrapping nba_api for live data access."
+      }
+    },
+    "model_ladder": [
+      {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5-20250929",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "standard",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "eval_score": null,
+        "note": null
+      },
+      {
+        "tier": "free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "eval_score": null,
+        "note": "Baseline availability, random free model"
+      }
+    ],
+    "min_tier": "free",
+    "capability_gates": {},
+    "fermi_contract": {
+      "finding_labels": [
+        "BASE RATE",
+        "GAME STATS",
+        "ELO",
+        "INJURY IMPACT",
+        "MULTIPLIER"
+      ],
+      "multiplier_range": [
+        0.2,
+        3.0
+      ],
+      "kg_fact_categories": [
+        "game_base_rate",
+        "elo_parameter",
+        "injury_impact"
+      ],
+      "seed_facts": [
+        {
+          "entity_type": "cep_base_rate",
+          "name": "NBA regular season home win rate",
+          "description": "Historical home team win percentage in NBA regular season games",
+          "properties": {
+            "value": 0.58,
+            "source": "Basketball-Reference 2000-2024",
+            "context": "regular_season"
+          },
+          "confidence": 0.95
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "NBA playoff home win rate",
+          "description": "Historical home team win percentage in NBA playoff games",
+          "properties": {
+            "value": 0.64,
+            "source": "Basketball-Reference 2000-2024",
+            "context": "playoffs"
+          },
+          "confidence": 0.95
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "NBA 3-1 series leader closes out",
+          "description": "Historical rate at which a team leading 3-1 in a best-of-7 series wins the series",
+          "properties": {
+            "value": 0.97,
+            "source": "Basketball-Reference all-time playoff data"
+          },
+          "confidence": 0.97
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "8-seed upsets 1-seed in first round",
+          "description": "Historical rate at which a #8 seed eliminates a #1 seed in NBA playoffs first round",
+          "properties": {
+            "value": 0.04,
+            "source": "Basketball-Reference 1984-2024"
+          },
+          "confidence": 0.93
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Top-5 NetRtg team wins championship",
+          "description": "Proportion of NBA champions that were top-5 in Net Rating entering playoffs",
+          "properties": {
+            "value": 0.4,
+            "source": "Basketball-Reference 2000-2024"
+          },
+          "confidence": 0.88
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Regular season to playoff Net Rating correlation",
+          "description": "Pearson correlation between regular season and playoff Net Rating",
+          "properties": {
+            "value": 0.45,
+            "source": "Basketball-Reference 2000-2024"
+          },
+          "confidence": 0.85
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Back-to-back win rate drop",
+          "description": "Average reduction in win probability on the second game of a back-to-back",
+          "properties": {
+            "value": -0.06,
+            "source": "NBA schedule analysis 2010-2024"
+          },
+          "confidence": 0.88
+        },
+        {
+          "entity_type": "cep_base_rate",
+          "name": "Rest advantage win rate (2+ days vs B2B)",
+          "description": "Win rate when one team has 2+ days rest vs opponent on back-to-back",
+          "properties": {
+            "value": 0.65,
+            "source": "NBA schedule analysis 2010-2024"
+          },
+          "confidence": 0.85
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "Elo home court advantage (points)",
+          "description": "Elo rating points added to home team's effective Elo for win probability calculation",
+          "properties": {
+            "value_elo_pts": 100,
+            "implied_win_pct_equal_teams": 0.6,
+            "k_factor": 20
+          },
+          "confidence": 0.9
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "MVP-calibre player injury impact (NetRtg)",
+          "description": "Expected Net Rating swing when MVP-calibre player (LeBron, Jokic, Giannis, Luka tier) is absent",
+          "properties": {
+            "value_netrtg": -6.0,
+            "tier": "mvp_candidate"
+          },
+          "confidence": 0.82
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "All-Star player injury impact (NetRtg)",
+          "description": "Expected Net Rating swing when All-Star (Tatum, Edwards, Brunson tier) is absent",
+          "properties": {
+            "value_netrtg": -3.5,
+            "tier": "all_star"
+          },
+          "confidence": 0.82
+        },
+        {
+          "entity_type": "cep_multiplier",
+          "name": "Quality starter injury impact (NetRtg)",
+          "description": "Expected Net Rating swing when a quality starter (solid starter, 3-and-D wing) is absent",
+          "properties": {
+            "value_netrtg": -1.5,
+            "tier": "quality_starter"
+          },
+          "confidence": 0.8
+        }
+      ]
+    }
+  },
+  "performance": {
+    "forecasts_contributed": 0,
+    "avg_brier_impact": 0.0,
+    "avg_confidence": 0.0,
+    "accuracy_rate": 0.0,
+    "total_queries": 0
+  },
+  "usage": {
+    "total_executions": 0,
+    "successful_executions": 0,
+    "failed_executions": 0,
+    "total_tokens_used": 0,
+    "total_cost_usd": 0.0,
+    "avg_execution_time_ms": 0,
+    "last_30_days": {
+      "executions": 0,
+      "tokens": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "metadata": {
+    "created": "2026-03-07",
+    "author": "Fermi Team",
+    "description": "Deep NBA analytics expert. Evaluates game outcomes using Elo ratings, advanced stats (NetRtg, ORtg, DRtg, Four Factors), injury impact models, schedule fatigue analysis, head-to-head matchup patterns, and historical base rates. References nba_api endpoints for comprehensive basketball intelligence.",
+    "tags": [
+      "nba",
+      "basketball",
+      "sports",
+      "analytics",
+      "elo",
+      "game-prediction",
+      "player-stats",
+      "injury-analysis",
+      "advanced-stats",
+      "fermi-orchestra"
+    ],
+    "sample_queries": [
+      "Will the Lakers win their next game against the Nuggets?",
+      "What is the probability the Celtics finish with the best record in the Eastern Conference?",
+      "Assess the Knicks' chances in a playoff series against the 76ers given current injury reports",
+      "How does the Warriors' NetRtg trend over the last 20 games compare to their season average?",
+      "What is the base rate for 6-seeds beating 3-seeds in NBA playoff series?",
+      "Evaluate the Pistons' rebuild trajectory — are they improving by advanced metrics?"
+    ],
+    "taxonomy": {
+      "kingdom": "Quantitativa",
+      "phylum": "Instrumenta",
+      "class": "Researchia",
+      "order": "Prognosticales",
+      "family": "Investigatidae",
+      "genus": "Analyticus",
+      "species": "nba_analyst"
+    },
+    "valence": {
+      "primary_affect": "precision",
+      "arousal": 0.5,
+      "valence": 0.7,
+      "personality_traits": [
+        "quantitative",
+        "never-refuses",
+        "trend-aware",
+        "matchup-savvy"
+      ]
+    },
+    "domain_knowledge": {
+      "historical_base_rates": {
+        "home_win_pct_regular_season": 0.58,
+        "home_win_pct_playoffs": 0.64,
+        "favorite_covers_spread": 0.51,
+        "back_to_back_win_rate_drop": -0.06,
+        "rest_advantage_2plus_vs_b2b": 0.65,
+        "series_3_1_leader_closes": 0.8,
+        "eight_seed_upsets_one_seed": 0.04,
+        "top5_netrtg_wins_championship": 0.4,
+        "regular_season_playoff_correlation": 0.45
+      },
+      "elo_parameters": {
+        "initial_rating": 1505,
+        "k_factor": 20,
+        "home_court_advantage": 100,
+        "season_regression_factor": 0.33,
+        "margin_multiplier": "log(abs(MOV) + 1) * (2.2 / (team_elo_diff * 0.001 + 2.2))"
+      },
+      "injury_impact_model": {
+        "description": "Estimated NetRtg swing when a player is absent, based on VORP/BPM tier",
+        "tiers": {
+          "mvp_candidate": {
+            "netrtg_swing": -6.0,
+            "examples": "LeBron, Jokic, Giannis, Luka"
+          },
+          "all_star": {
+            "netrtg_swing": -3.5,
+            "examples": "Tatum, Edwards, Brunson, Haliburton"
+          },
+          "quality_starter": {
+            "netrtg_swing": -1.5,
+            "examples": "Solid starters, 3-and-D wings"
+          },
+          "rotation_player": {
+            "netrtg_swing": -0.5,
+            "examples": "6th-8th man, bench contributors"
+          },
+          "deep_bench": {
+            "netrtg_swing": -0.1,
+            "examples": "10th+ man, rarely plays"
+          }
+        }
+      },
+      "key_metrics_definitions": {
+        "net_rating": "ORtg - DRtg per 100 possessions. Best single predictor of team quality.",
+        "pace": "Possessions per 48 min. League average ~99-100.",
+        "efg_pct": "(FG + 0.5 * 3PM) / FGA. Adjusts for 3-point value.",
+        "ts_pct": "PTS / (2 * (FGA + 0.44 * FTA)). Most comprehensive shooting metric.",
+        "four_factors": "eFG%, TOV%, ORB%, FT Rate — explain ~95% of offensive efficiency variance."
+      },
+      "nba_teams": [
+        "ATL",
+        "BOS",
+        "BKN",
+        "CHA",
+        "CHI",
+        "CLE",
+        "DAL",
+        "DEN",
+        "DET",
+        "GSW",
+        "HOU",
+        "IND",
+        "LAC",
+        "LAL",
+        "MEM",
+        "MIA",
+        "MIL",
+        "MIN",
+        "NOP",
+        "NYK",
+        "OKC",
+        "ORL",
+        "PHI",
+        "PHX",
+        "POR",
+        "SAC",
+        "SAS",
+        "TOR",
+        "UTA",
+        "WAS"
+      ]
+    }
+  },
+  "accepts": [
+    "query",
+    "team",
+    "player",
+    "matchup",
+    "schedule"
+  ],
+  "produces": [
+    "evidence",
+    "win-probability",
+    "elo-analysis",
+    "matchup-analysis",
+    "trend-analysis"
+  ],
+  "dependencies": {
+    "required": [],
+    "optional": [
+      "sentiment_analyzer",
+      "market_research"
+    ],
+    "future_mcp": [
+      "nba-api-mcp"
+    ]
+  }
+}
