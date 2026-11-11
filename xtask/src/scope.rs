@@ -35,7 +35,9 @@ pub fn classify(path: &str) -> Kind {
 
 /// `diffs` holds `(path, unified diff with zero context)` for each verification file in a
 /// mixed PR. Such a file is allowed only if every change is the removal of an
-/// `#[ignore = "pending ..."]` line, which is how a product PR turns pending tests on.
+/// `#[ignore = "pending ..."]` line or of the `#![cfg(any())]` gate that keeps a test file
+/// out of the build until its API exists (AGENTS.md; ADR-0008 item 12). That is how a
+/// product PR turns pending tests on.
 pub fn check(changed: &[&str], diffs: &[(&str, &str)]) -> Result<String, String> {
     let product: Vec<&str> = changed
         .iter()
@@ -95,7 +97,7 @@ fn only_unignores(diff: &str) -> bool {
             }
         } else if let Some(removed) = line.strip_prefix('-') {
             let r = removed.trim();
-            if r.starts_with("#[ignore = \"pending") {
+            if r.starts_with("#[ignore = \"pending") || r == "#![cfg(any())]" {
                 removed_any = true;
             } else if !r.is_empty() {
                 return false;

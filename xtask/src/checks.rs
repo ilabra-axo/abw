@@ -29,6 +29,9 @@ pub struct File<'a> {
 pub const LEDGER_DIR: &str = "crates/abw-ledger/";
 /// The only crate that may reference Lattice dimension names (T16).
 pub const LATTICE_DIR: &str = "crates/abw-lattice/";
+/// The outbound guard (T18, ADR-0008 item 8): `egress.rs` or `egress/` in abw-agent. The only
+/// product code that may construct an outbound HTTP client or open an outbound socket.
+pub const EGRESS_PREFIX: &str = "crates/abw-agent/src/egress";
 
 /// Crates that only one workspace member may depend on (normal and build dependencies).
 /// A prefix ending in `*` matches any crate name starting with it.
@@ -60,6 +63,31 @@ pub const DEPENDENCY_RULES: &[(&str, &str, &str)] = &[
         "acn-*",
         "abw-acn",
         "ECO-9: only abw-acn depends on ACN crates",
+    ),
+    (
+        "reqwest",
+        "abw-agent",
+        "T18: outbound HTTP goes only through abw-agent's egress guard",
+    ),
+    (
+        "ureq",
+        "abw-agent",
+        "T18: outbound HTTP goes only through abw-agent's egress guard",
+    ),
+    (
+        "isahc",
+        "abw-agent",
+        "T18: outbound HTTP goes only through abw-agent's egress guard",
+    ),
+    (
+        "surf",
+        "abw-agent",
+        "T18: outbound HTTP goes only through abw-agent's egress guard",
+    ),
+    (
+        "attohttpc",
+        "abw-agent",
+        "T18: outbound HTTP goes only through abw-agent's egress guard",
     ),
 ];
 
@@ -353,7 +381,171 @@ pub fn repo(root: &std::path::Path, metadata_json: &str) -> Result<Vec<Finding>,
     out.extend(spawn_sites(&files, &allow));
     out.extend(vocabulary(&files));
     out.extend(probe_isolation(&files));
+    out.extend(egress_clients(&files));
+    out.extend(sync_decide(&files));
     Ok(out)
+}
+
+/// The text with every string literal and comment blanked to spaces, newlines kept, so that
+/// byte offsets map to the same lines as the original.
+pub fn code_only(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for seg in lex::segments(text) {
+        match seg.kind {
+            Kind::Code => out.push_str(&seg.text),
+            Kind::Str | Kind::Comment => {
+                // Keep the quotes' place so adjacent code tokens don't merge.
+                out.push(' ');
+                for c in seg.text.chars() {
+                    out.push(if c == '\n' { '\n' } else { ' ' });
+                }
+                out.push(' ');
+            }
+        }
+    }
+    out
+}
+
+fn line_of(text: &str, byte: usize) -> usize {
+    text[..byte.min(text.len())].matches('\n').count() + 1
+}
+
+/// Constructors of outbound HTTP clients and sockets, matched with whitespace removed.
+const OUTBOUND_ALWAYS: &[&str] = &[
+    "reqwest::Client::new",
+    "reqwest::Client::builder",
+    "reqwest::ClientBuilder",
+    "reqwest::get(",
+    "reqwest::blocking",
+    "hyper::client",
+    "hyper_util::client",
+    "ureq::",
+    "isahc::",
+    "surf::",
+    "attohttpc::",
+    "curl::",
+    "TcpStream::connect",
+    "UdpSocket::connect",
+];
+
+/// Constructors that are reqwest's once the file imports reqwest.
+const OUTBOUND_WITH_REQWEST: &[&str] = &["Client::new(", "Client::builder(", "ClientBuilder::new("];
+
+/// T18 (ADR-0008 item 11): only the egress guard constructs outbound HTTP clients or opens
+/// outbound sockets in product code.
+pub fn egress_clients(files: &[File<'_>]) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for f in files
+        .iter()
+        .filter(|f| is_product_source(f.path) && !f.path.starts_with(EGRESS_PREFIX))
+    {
+        let code = code_only(f.text);
+        let uses_reqwest = code
+            .lines()
+            .map(|l| l.chars().filter(|c| !c.is_whitespace()).collect::<String>())
+            .any(|l| l.starts_with("usereqwest") || l.starts_with("pubusereqwest"));
+        for (n, line) in code.lines().enumerate() {
+            let compact: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+            let mut hits: Vec<&str> = OUTBOUND_ALWAYS
+                .iter()
+                .copied()
+                .filter(|p| compact.contains(p))
+                .collect();
+            if uses_reqwest {
+                hits.extend(
+                    OUTBOUND_WITH_REQWEST
+                        .iter()
+                        .copied()
+                        .filter(|p| compact.contains(p)),
+                );
+            }
+            if !hits.is_empty() {
+                out.push(Finding {
+                    check: "egress",
+                    location: format!("{}:{}", f.path, n + 1),
+                    message: format!(
+                        "`{}` outside the egress guard; outbound calls go through abw_agent::egress (T18)",
+                        hits.join("`, `")
+                    ),
+                });
+            }
+        }
+    }
+    out
+}
+
+fn is_ident_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// SUB-06 (ADR-0008 item 11): a `fn decide` is synchronous: not `async`, no `Future` in its
+/// signature, no `.await` in its body.
+pub fn sync_decide(files: &[File<'_>]) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for f in files.iter().filter(|f| is_product_source(f.path)) {
+        let code = code_only(f.text);
+        let bytes = code.as_bytes();
+        let mut from = 0;
+        while let Some(rel) = code[from..].find("fn") {
+            let at = from + rel;
+            from = at + 2;
+            let before_ok = at == 0 || !is_ident_char(code[..at].chars().last().unwrap_or(' '));
+            let rest = &code[at + 2..];
+            let trimmed = rest.trim_start();
+            if !before_ok || trimmed.len() == rest.len() || !trimmed.starts_with("decide") {
+                continue;
+            }
+            let after_name = &trimmed["decide".len()..];
+            if after_name.starts_with(is_ident_char) {
+                continue;
+            }
+            let line = line_of(&code, at);
+            let mut push = |message: &str| {
+                out.push(Finding {
+                    check: "sync-decide",
+                    location: format!("{}:{line}", f.path),
+                    message: format!("{message}; decide must be a pure, synchronous fn (SUB-06)"),
+                });
+            };
+            // The words before `fn` on the same item: `pub`, `pub(crate)`, `async`, `const` ...
+            let line_start = code[..at].rfind(['\n', ';', '}', '{']).map_or(0, |i| i + 1);
+            let prefix: Vec<String> = lex::words(&code[line_start..at]);
+            if prefix.iter().any(|w| w == "async") {
+                push("`async fn decide`");
+            }
+            // Signature: up to the body's `{` or a `;` (a trait declaration).
+            let sig_end = code[at..].find(['{', ';']).map_or(code.len(), |i| at + i);
+            let signature = &code[at..sig_end];
+            if lex::words(signature).iter().any(|w| w == "future") {
+                push("`decide` returns a Future");
+            }
+            if bytes.get(sig_end) == Some(&b'{') {
+                let mut depth = 0usize;
+                let mut end = code.len();
+                for (i, c) in code[sig_end..].char_indices() {
+                    match c {
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                end = sig_end + i;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let body: String = code[sig_end..end]
+                    .chars()
+                    .filter(|c| !c.is_whitespace())
+                    .collect();
+                if body.contains(".await") {
+                    push("`.await` inside `decide`");
+                }
+            }
+        }
+    }
+    out
 }
 
 fn collect(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) -> Result<(), String> {

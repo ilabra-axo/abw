@@ -229,6 +229,13 @@ text = "A command retried with the same idempotency key and request returns the 
 source = "target-system-design §3.2.1 step 2, §3.10"
 milestone = "M1"
 
+[[req]]
+id = "SUB-06"
+title = "No ledger transaction spans a non-ledger await"
+text = "No ledger transaction spans a non-ledger await. Command decisions are synchronous and pure, and no public API hands a caller a transaction handle, so an LLM, tool or HTTP call can't run inside a ledger transaction."
+source = "target-system-design §2.3, §3.9 layer 4; ADR-0005 item 1; ADR-0008"
+milestone = "M2"
+
 # ---------------------------------------------------------------- economy (economy.md)
 
 [[req]]
@@ -408,7 +415,8 @@ id = "CAP-01.04"
 title = "Run agents: Remember"
 text = "Keep per-agent episodic and semantic memory, tagged with how well-sourced it is"
 source = "capabilities.md §1"
-milestone = "M2"
+milestone = "M5"
+note = "Moved from M2 to M5 by ADR-0008: memory is ported with consolidation (PROT-07)."
 
 [[req]]
 id = "CAP-02.01"
@@ -768,15 +776,15 @@ title = "Account for money: Grant, deposit, transfer"
 text = "Move credit with balanced double entries; retries never double-charge"
 source = "capabilities.md §12"
 milestone = "M2"
-note = "Superseded in mechanism by economy.md (allowance, no wallets); the requirement stands as restated there."
+note = "Superseded in mechanism by economy.md (allowance, no wallets); the requirement stands as restated there. Met by the ECO-4 and ECO-6 tests, which carry this tag: no transfer event exists, and a retried grant or settle never charges twice (ADR-0008)."
 
 [[req]]
 id = "CAP-12.04"
 title = "Account for money: Fund a spawn"
 text = "Pay for, or sponsor, a new app workspace"
 source = "capabilities.md §12"
-milestone = "M2"
-note = "Superseded in mechanism by economy.md (allowance, no wallets); the requirement stands as restated there."
+milestone = "M3"
+note = "Superseded in mechanism by economy.md (allowance, no wallets); the requirement stands as restated there. Moved from M2 to M3 by ADR-0008: workspaces arrive in M3, spawning moves no value, and the requirement is met by workspace spend caps."
 
 [[req]]
 id = "CAP-13.01"
@@ -860,7 +868,8 @@ id = "CAP-14.06"
 title = "Connect and protect: Keep secrets"
 text = "Encrypt credentials and signing keys at rest"
 source = "capabilities.md §14"
-milestone = "M2"
+milestone = "M4"
+note = "Moved from M2 to M4 by ADR-0008, with the ACN key store. M2 stores no tenant secrets; provider keys come from the environment and API keys are stored only as hashes."
 
 [[req]]
 id = "CAP-15.01"
