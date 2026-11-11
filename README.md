@@ -8,8 +8,8 @@ This repository is the new core (ADR-0001). It is being built milestone by miles
 | --- | --- | --- |
 | M0 | Foundations: register, trace, harvest, CI | done |
 | M1 | Event store (`abw-canon`, `abw-ledger`) | done |
-| M2 | Agents, episodes, allowance | next |
-| M3 | Verification Lattice and Fermi Console | |
+| M2 | Agents, episodes, allowance | done (real LLM provider pending) |
+| M3 | Verification Lattice and Fermi Console | next |
 | M4 | ACN | |
 | M5 | Coordination, strategists, loops | |
 | M6 | Remaining tenants | |
