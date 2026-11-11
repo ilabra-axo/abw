@@ -183,6 +183,191 @@ fn check_probe_isolation() {
     assert_eq!(repo_findings("probe"), Vec::<String>::new());
 }
 
+const META_HTTP_BAD: &str = r#"{"workspace_members":["a","b","c"],"packages":[
+ {"name":"abw-agent","id":"a","dependencies":[{"name":"reqwest","kind":null}]},
+ {"name":"abw-http","id":"b","dependencies":[{"name":"reqwest","kind":null},{"name":"ureq","kind":"build"}]},
+ {"name":"abw-lattice","id":"c","dependencies":[{"name":"reqwest","kind":"dev"}]}]}"#;
+
+// @req T18, CAP-14.05
+#[test]
+fn check_dependencies_keep_http_clients_in_the_agent_crate() {
+    let found = match checks::dependencies(META_HTTP_BAD) {
+        Ok(f) => f,
+        Err(e) => panic!("{e}"),
+    };
+    let mut locs: Vec<String> = found
+        .iter()
+        .map(|f| format!("{} {}", f.location, f.message))
+        .collect();
+    locs.sort();
+    assert_eq!(found.len(), 2, "{locs:?}");
+    assert!(
+        found
+            .iter()
+            .all(|f| f.location.starts_with("abw-http") && f.message.contains("T18")),
+        "{locs:?}"
+    );
+    // abw-agent may depend on reqwest (its egress module builds the clients); dev-deps are exempt.
+    assert!(
+        !found
+            .iter()
+            .any(|f| f.location.starts_with("abw-agent") || f.location.starts_with("abw-lattice"))
+    );
+}
+
+// @req T18, CAP-14.05
+#[test]
+fn check_egress_rejects_outbound_clients_outside_the_guard() {
+    let violating = r#"
+use reqwest::Client;
+use std::net::TcpStream;
+
+fn a() -> reqwest::Client { reqwest::Client::new() }
+fn b() { let c = reqwest :: Client :: builder().build(); }
+fn c() { let c = Client::builder().build(); }
+async fn d() { let r = reqwest::get("https://x").await; }
+fn e() { let s = TcpStream::connect("10.0.0.1:80"); }
+fn f() { let r = ureq::get("http://x").call(); }
+fn g() { let c = hyper_util::client::legacy::Client::builder(x); }
+"#;
+    let found = checks::egress_clients(&[file("crates/abw-http/src/fetch.rs", violating)]);
+    let lines: Vec<String> = found.iter().map(|f| f.location.clone()).collect();
+    assert_eq!(
+        lines,
+        vec![
+            "crates/abw-http/src/fetch.rs:5",
+            "crates/abw-http/src/fetch.rs:6",
+            "crates/abw-http/src/fetch.rs:7",
+            "crates/abw-http/src/fetch.rs:8",
+            "crates/abw-http/src/fetch.rs:9",
+            "crates/abw-http/src/fetch.rs:10",
+            "crates/abw-http/src/fetch.rs:11",
+        ],
+        "{found:?}"
+    );
+    assert!(found.iter().all(|f| f.check == "egress"));
+
+    // The same code inside the guard module is the one permitted place.
+    for guard in [
+        "crates/abw-agent/src/egress.rs",
+        "crates/abw-agent/src/egress/client.rs",
+    ] {
+        assert!(
+            checks::egress_clients(&[file(guard, violating)]).is_empty(),
+            "{guard}"
+        );
+    }
+    // Tests are not product code.
+    assert!(
+        checks::egress_clients(&[file("crates/abw-agent/tests/egress.rs", violating)]).is_empty()
+    );
+}
+
+// @req T18, CAP-14.05
+#[test]
+fn check_egress_accepts_clients_obtained_from_the_guard() {
+    let conforming = r#"
+// reqwest::Client::new() in a comment is not code
+use abw_agent::egress;
+
+struct Anthropic { client: reqwest::Client }
+
+fn new() -> Result<Anthropic, egress::NetGuardError> {
+    let client = egress::fixed_host_client(std::time::Duration::from_secs(60))?;
+    let msg = "call reqwest::Client::new() only in egress";
+    let other = sqlx_like::Client::new(1);
+    Ok(Anthropic { client })
+}
+"#;
+    assert_eq!(
+        checks::egress_clients(&[file("crates/abw-agent/src/llm/anthropic.rs", conforming)]),
+        vec![]
+    );
+    // Without `use reqwest`, a type named Client elsewhere is not an HTTP client.
+    let unrelated = "fn f() { let c = redis::Client::new(); let d = Client::builder(); }\n";
+    assert!(
+        checks::egress_clients(&[file("crates/abw-agent/src/memory.rs", unrelated)]).is_empty()
+    );
+}
+
+// @req T18, CAP-14.05
+#[test]
+fn repo_constructs_outbound_clients_only_in_the_egress_guard() {
+    assert_eq!(repo_findings("egress"), Vec::<String>::new());
+}
+
+// @req SUB-06
+#[test]
+fn check_sync_decide_rejects_async_decisions() {
+    let violating = r#"
+impl CommandSpec for Hold {
+    async fn decide(&self, heads: &Heads) -> Result<Vec<StreamAppend>, DispatchError> {
+        Ok(vec![])
+    }
+}
+impl CommandSpec for Close {
+    fn decide(&self, heads: &Heads) -> Result<Vec<StreamAppend>, DispatchError> {
+        let price = self.llm.complete(req).await;
+        Ok(vec![])
+    }
+}
+trait Later {
+    fn decide(&self) -> BoxFuture<'_, Result<(), DispatchError>>;
+}
+impl Other for Settle {
+    pub(crate) fn decide(&self) -> impl std::future::Future<Output = ()> { async {} }
+}
+"#;
+    let found = checks::sync_decide(&[file("crates/abw-ledger/src/episode.rs", violating)]);
+    let locs: Vec<(String, String)> = found
+        .iter()
+        .map(|f| (f.location.clone(), f.message.clone()))
+        .collect();
+    let lines: Vec<&str> = found.iter().map(|f| f.location.as_str()).collect();
+    assert_eq!(
+        lines,
+        vec![
+            "crates/abw-ledger/src/episode.rs:3",
+            "crates/abw-ledger/src/episode.rs:8",
+            "crates/abw-ledger/src/episode.rs:14",
+            "crates/abw-ledger/src/episode.rs:17",
+        ],
+        "{locs:?}"
+    );
+    assert!(found[0].message.contains("async"), "{locs:?}");
+    assert!(found[1].message.contains(".await"), "{locs:?}");
+    assert!(found[2].message.contains("Future"), "{locs:?}");
+}
+
+// @req SUB-06
+#[test]
+fn check_sync_decide_accepts_pure_decisions() {
+    let conforming = r#"
+impl CommandSpec for Hold {
+    // async fn decide(&self) would be refused; this is a comment
+    fn decide(&self, heads: &Heads, ctx: &CommandCtx) -> Result<Vec<StreamAppend>, DispatchError> {
+        let note = "no .await here";
+        let n = heads.head(&self.stream);
+        Ok(vec![])
+    }
+    fn decided(&self) {}
+}
+async fn dispatch(ledger: &Ledger) { let x = ledger.dispatch(cmd, &ctx).await; }
+fn undecided() {}
+async fn decide_later() { work().await; }
+"#;
+    assert_eq!(
+        checks::sync_decide(&[file("crates/abw-ledger/src/allowance.rs", conforming)]),
+        vec![]
+    );
+}
+
+// @req SUB-06
+#[test]
+fn repo_decisions_are_synchronous() {
+    assert_eq!(repo_findings("sync-decide"), Vec::<String>::new());
+}
+
 #[test]
 fn lexer_separates_code_strings_and_comments() {
     use xtask::lex::{Kind, segments};

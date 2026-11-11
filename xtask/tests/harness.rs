@@ -236,6 +236,29 @@ fn pr_scope_accepts_pure_prs_and_unignoring_pending_tests() {
 
 // @req GOV-04
 #[test]
+fn pr_scope_accepts_removing_the_build_gate_and_nothing_else() {
+    let changed = [
+        "crates/abw-ledger/src/allowance.rs",
+        "crates/abw-ledger/tests/allowance.rs",
+    ];
+    let path = "crates/abw-ledger/tests/allowance.rs";
+    let gate_only = "@@ -1 +0,0 @@\n-#![cfg(any())]\n";
+    assert!(scope::check(&changed, &[(path, gate_only)]).is_ok());
+
+    let gate_and_ignores = "@@ -1 +0,0 @@\n-#![cfg(any())]\n@@ -40 +39,0 @@\n-#[ignore = \"pending M2: episode pipeline\"]\n";
+    assert!(scope::check(&changed, &[(path, gate_and_ignores)]).is_ok());
+
+    // A different cfg, an added gate, or an edit next to the removal is not a pure enable.
+    let other_cfg = "@@ -1 +0,0 @@\n-#![cfg(feature = \"later\")]\n";
+    assert!(scope::check(&changed, &[(path, other_cfg)]).is_err());
+    let added = "@@ -0,0 +1 @@\n+#![cfg(any())]\n";
+    assert!(scope::check(&changed, &[(path, added)]).is_err());
+    let sneaky = "@@ -1,2 +0,0 @@\n-#![cfg(any())]\n-    assert!(held <= hold);\n";
+    assert!(scope::check(&changed, &[(path, sneaky)]).is_err());
+}
+
+// @req GOV-04
+#[test]
 fn path_classification() {
     use scope::Kind::*;
     for (p, k) in [
